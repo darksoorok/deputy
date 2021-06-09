@@ -17,11 +17,9 @@ u8 = encoding.UTF8
 
 local mainIni = inicfg.load({
 	config = {
-        socnetwork = true,
+        socnetwork = 1,
         chat_id = '',
         user_id = '',
-        VK = false,
-        Telega = false,
         current_day = os.date('%D'),
         invite = 0,
         quest = 0,
@@ -33,15 +31,6 @@ local mainIni = inicfg.load({
 
 local access_token = '15c68b42cbf7c09a141c924adafbc7da0e5b85544c09d2827cf03d80fb8830aed43118e0dbeab212483cc'
 local settings = {}
-local ages = imgui.ImBool(false)
-local overlay = imgui.ImBool(mainIni.config.overlay)
-local fmembers = imgui.ImBool(false)
-local sw, sh = getScreenResolution()
-local socnetwork = imgui.ImBool(mainIni.config.socnetwork)
-local user_id = imgui.ImBuffer(u8(mainIni.config.user_id), 256)
-local chat_id = imgui.ImBuffer(u8(mainIni.config.chat_id), 256)
-local VK = imgui.ImBool(mainIni.config.VK)
-local Telega = imgui.ImBool(mainIni.config.Telega)
 local invite = mainIni.config.invite
 local quest = mainIni.config.quest
 local current_day = mainIni.config.current_day
@@ -62,6 +51,7 @@ local update_path = getWorkingDirectory() .. "\\config\\agesilay_update.ini"
 local script_url = 'https://raw.githubusercontent.com/darksoorok/deputy/main/agesilay_notf.lua' -- Путь скрипту на GitHub.
 local script_path = thisScript().path
 local check_rank = imgui.ImInt(0)
+local choise_socnetwork = imgui.ImInt(mainIni.config.socnetwork)
 local setrank = imgui.ImBuffer(2)
 local findname = imgui.ImBuffer(100)
 local uninvite = imgui.ImBuffer(150)
@@ -69,6 +59,12 @@ local setmute = imgui.ImBuffer(150)
 local settime = imgui.ImBuffer(4)
 local addname = imgui.ImBuffer(150)
 local addprich = imgui.ImBuffer(150)
+local ages = imgui.ImBool(false)
+local overlay = imgui.ImBool(mainIni.config.overlay)
+local fmembers = imgui.ImBool(false)
+local sw, sh = getScreenResolution()
+local user_id = imgui.ImBuffer(u8(mainIni.config.user_id), 256)
+local chat_id = imgui.ImBuffer(u8(mainIni.config.chat_id), 256)
 
 if not doesFileExist('moonloader/config/agesilay_notf.ini') then inicfg.save(mainIni, 'agesilay_notf.ini') end
 
@@ -143,9 +139,9 @@ function main()
             downloadUrlToFile(script_url, script_path, function(id, status)
                 if status == 6 then
                     sampAddChatMessage('[Уведомления для отчётов Agesilay] {ffffff}Скрипт успешно обновлён.', 0xFF0000)
-                    thisScript():reload()
                 end
             end)
+            break
         end
     end
 end
@@ -210,7 +206,7 @@ function onWindowMessage(msg, wparam, lparam)
         if (wparam == keys.VK_ESCAPE and (ages.v or fmembers.v)) and not isPauseMenuActive() then
             consumeWindowMessage(true, false)
             if msg == 0x101 then
-                ages.v = false; fmembers.v = false
+                ages.v = false; fmembers.v = false; selects = nil
             end
         end
     end
@@ -239,10 +235,10 @@ function sampGetPlayerIdByNickname(nick)
 end
 
 function SendMessageDeputy(message)
-    if socnetwork.v then
-        https.request('https://api.telegram.org/bot1217991754:AAGMdYsUd2YlHbdN0d-wbrEgtgkJWSPTDpE/sendMessage?chat_id='..chat_id.v..'&text='..encodeUrl(message))
-    else
+    if choise_socnetwork.v == 1 then
         https.request('https://api.vk.com/method/messages.send?v=5.107&message='..encodeUrl(message)..'&user_id='..user_id.v..'&access_token='..access_token..'&random_id='..math.random(1, 100000000))
+    else
+        https.request('https://api.telegram.org/bot1217991754:AAGMdYsUd2YlHbdN0d-wbrEgtgkJWSPTDpE/sendMessage?chat_id='..chat_id.v..'&text='..encodeUrl(message))
     end
 end
 
@@ -424,234 +420,59 @@ function sampGetPlayerOrganisation(playerId)
     local data = {
         [2147502591] = 'Полиция',
         [2164227710] = 'Больница',
-        [2160918272] = 'Мэрия',
+        [2160918272] = 'Правительство',
         [2157536819] = 'Армия/ТСР',
         [2164221491] = 'Автошкола',
         [2164228096] = 'СМИ',
         [2150206647] = 'Банк ЛС',
         [2152104628] = 'Страховая',
-        [2566951719] = 'Грув',
-        [2580667164] = 'Вагос',
-        [2580283596] = 'Баллас',
-        [2566979554] = 'Ацтек',
-        [2573625087] = 'Рифа',
-        [2158524536] = 'Ночные волки',
-        [2159694877] = 'Варлок МС',
-        [2157314562] = 'Якудза',
-        [2150852249] = 'Рус. Мафия',
-        [2157523814] = 'ЛКН',
+        [2566951719] = 'Grove Street',
+        [2580667164] = 'Los-Santos Vagos',
+        [2580283596] = 'The Ballas',
+        [2566979554] = 'Varios Los Aztecas',
+        [2573625087] = 'The Rifa',
+        [2158524536] = 'Night Wolfs',
+        [2159694877] = 'Warlock MC',
+        [2157314562] = 'Yakuza',
+        [2150852249] = 'Russian Mafia',
+        [2157523814] = 'La Cosa Nostra',
         [23486046] = 'В маске',
     }
     return (data[sampGetPlayerColor(playerId)] or 'Нет')
 end
 
-function imgui.TextColoredRGB(text)
-    local style = imgui.GetStyle()
-    local colors = style.Colors
-    local ImVec4 = imgui.ImVec4
-
-    local explode_argb = function(argb)
-        local a = bit.band(bit.rshift(argb, 24), 0xFF)
-        local r = bit.band(bit.rshift(argb, 16), 0xFF)
-        local g = bit.band(bit.rshift(argb, 8), 0xFF)
-        local b = bit.band(argb, 0xFF)
-        return a, r, g, b
-    end
-
-    local getcolor = function(color)
-        if color:sub(1, 6):upper() == 'SSSSSS' then
-            local r, g, b = colors[1].x, colors[1].y, colors[1].z
-            local a = tonumber(color:sub(7, 8), 16) or colors[1].w * 255
-            return ImVec4(r, g, b, a / 255)
-        end
-        local color = type(color) == 'string' and tonumber(color, 16) or color
-        if type(color) ~= 'number' then return end
-        local r, g, b, a = explode_argb(color)
-        return imgui.ImColor(r, g, b, a):GetVec4()
-    end
-
-    local render_text = function(text_)
-        for w in text_:gmatch('[^\r\n]+') do
-            local text, colors_, m = {}, {}, 1
-            w = w:gsub('{(......)}', '{%1FF}')
-            while w:find('{........}') do
-                local n, k = w:find('{........}')
-                local color = getcolor(w:sub(n + 1, k - 1))
-                if color then
-                    text[#text], text[#text + 1] = w:sub(m, n - 1), w:sub(k + 1, #w)
-                    colors_[#colors_ + 1] = color
-                    m = n
-                end
-                w = w:sub(1, n - 1) .. w:sub(k + 1, #w)
-            end
-            if text[0] then
-                for i = 0, #text do
-                    imgui.TextColored(colors_[i] or colors[1], u8(text[i]))
-                    imgui.SameLine(nil, 0)
-                end
-                imgui.NewLine()
-            else imgui.Text(u8(w)) end
-        end
-    end
-
-    render_text(text)
-end
-
-function imgui.CenterColumnTextColoredRGB(text)
-    local style = imgui.GetStyle()
-    local colors = style.Colors
-    local ImVec4 = imgui.ImVec4
-
-    local explode_argb = function(argb)
-        local a = bit.band(bit.rshift(argb, 24), 0xFF)
-        local r = bit.band(bit.rshift(argb, 16), 0xFF)
-        local g = bit.band(bit.rshift(argb, 8), 0xFF)
-        local b = bit.band(argb, 0xFF)
-        return a, r, g, b
-    end
-
-    local getcolor = function(color)
-        if color:sub(1, 6):upper() == 'SSSSSS' then
-            local r, g, b = colors[1].x, colors[1].y, colors[1].z
-            local a = tonumber(color:sub(7, 8), 16) or colors[1].w * 255
-            return ImVec4(r, g, b, a / 255)
-        end
-        local color = type(color) == 'string' and tonumber(color, 16) or color
-        if type(color) ~= 'number' then return end
-        local r, g, b, a = explode_argb(color)
-        return imgui.ImColor(r, g, b, a):GetVec4()
-    end
-
-    local render_text = function(text_)
-        for w in text_:gmatch('[^\r\n]+') do
-            local text, colors_, m = {}, {}, 1
-            w = w:gsub('{(......)}', '{%1FF}')
-            while w:find('{........}') do
-                local n, k = w:find('{........}')
-                local color = getcolor(w:sub(n + 1, k - 1))
-                if color then
-                    text[#text], text[#text + 1] = w:sub(m, n - 1), w:sub(k + 1, #w)
-                    colors_[#colors_ + 1] = color
-                    m = n
-                end
-                w = w:sub(1, n - 1) .. w:sub(k + 1, #w)
-            end
-            if text[0] then
-                for i = 0, #text do
-                    imgui.TextColored(colors_[i] or colors[1], u8(text[i]))
-                    imgui.SameLine(nil, 0)
-                end
-                imgui.NewLine()
-            else 
-                imgui.Text(u8(w)) 
-            end
-        end
-    end
-    imgui.SetCursorPosX((imgui.GetColumnOffset() + (imgui.GetColumnWidth() / 2 + 22)) - imgui.CalcTextSize(text).x / 2)
-    render_text(text)
-end
-
-function imgui.CenterTextColoredRGB(text)
-    local width = imgui.GetWindowWidth()
-    local style = imgui.GetStyle()
-    local colors = style.Colors
-    local ImVec4 = imgui.ImVec4
-
-    local explode_argb = function(argb)
-        local a = bit.band(bit.rshift(argb, 24), 0xFF)
-        local r = bit.band(bit.rshift(argb, 16), 0xFF)
-        local g = bit.band(bit.rshift(argb, 8), 0xFF)
-        local b = bit.band(argb, 0xFF)
-        return a, r, g, b
-    end
-
-    local getcolor = function(color)
-        if color:sub(1, 6):upper() == 'SSSSSS' then
-            local r, g, b = colors[1].x, colors[1].y, colors[1].z
-            local a = tonumber(color:sub(7, 8), 16) or colors[1].w * 255
-            return ImVec4(r, g, b, a / 255)
-        end
-        local color = type(color) == 'string' and tonumber(color, 16) or color
-        if type(color) ~= 'number' then return end
-        local r, g, b, a = explode_argb(color)
-        return imgui.ImColor(r, g, b, a):GetVec4()
-    end
-
-    local render_text = function(text_)
-        for w in text_:gmatch('[^\r\n]+') do
-            local textsize = w:gsub('{.-}', '')
-            local text_width = imgui.CalcTextSize(u8(textsize))
-            imgui.SetCursorPosX( width / 2 - text_width .x / 2 )
-            local text, colors_, m = {}, {}, 1
-            w = w:gsub('{(......)}', '{%1FF}')
-            while w:find('{........}') do
-                local n, k = w:find('{........}')
-                local color = getcolor(w:sub(n + 1, k - 1))
-                if color then
-                    text[#text], text[#text + 1] = w:sub(m, n - 1), w:sub(k + 1, #w)
-                    colors_[#colors_ + 1] = color
-                    m = n
-                end
-                w = w:sub(1, n - 1) .. w:sub(k + 1, #w)
-            end
-            if text[0] then
-                for i = 0, #text do
-                    imgui.TextColored(colors_[i] or colors[1], u8(text[i]))
-                    imgui.SameLine(nil, 0)
-                end
-                imgui.NewLine()
-            else
-                imgui.Text(u8(w))
-            end
-        end
-    end
-    render_text(text)
-end
-
 function imgui.OnDrawFrame()
     if (ages.v) then
-        imgui.SetNextWindowSize(imgui.ImVec2(305,240), imgui.Cond.FirstUseEver) -- 305,210
+        imgui.SetNextWindowSize(imgui.ImVec2(305,250), imgui.Cond.FirstUseEver)
         imgui.SetNextWindowPos(imgui.ImVec2((sw/2),(sh/2)), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5), imgui.WindowFlags.AlwaysAutoResize)
         imgui.Begin(u8'Приветствую, '..nickname..'('..id_deputy..') | S&D Scripts', ages, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize)
 
         imgui.Text(u8'Куда присылать уведомления?')
-        if imgui.Checkbox(u8'ВКонтакте', VK) then
-            socnetwork.v = false
-            Telega.v = false
-            VK.v = true
-            mainIni.config.socnetwork = socnetwork.v
-            mainIni.config.Telega = Telega.v
-            mainIni.config.VK = VK.v
+        if imgui.RadioButton(u8'ВКонтакте',choise_socnetwork, 1) then
+            mainIni.config.socnetwork = choise_socnetwork.v
             inicfg.save(mainIni, 'agesilay_notf.ini')
         end
         imgui.SameLine()
-        if imgui.Checkbox(u8'Телеграмм', Telega) then
-            socnetwork.v = true
-            Telega.v = true
-            VK.v = false
-            mainIni.config.socnetwork = socnetwork.v
-            mainIni.config.Telega = Telega.v
-            mainIni.config.VK = VK.v
+        if imgui.RadioButton(u8'Telegram',choise_socnetwork, 2) then
+            mainIni.config.socnetwork = choise_socnetwork.v
             inicfg.save(mainIni, 'agesilay_notf.ini')
         end
-        
-        if VK.v then
-            imgui.PushItemWidth(200)
-            if imgui.InputText(u8'Введите VK ID', user_id) then mainIni.config.user_id = user_id.v; inicfg.save(mainIni, 'agesilay_notf.ini') end
+        imgui.PushItemWidth(200)
+        if imgui.InputText(u8(choise_socnetwork.v == 1 and 'Введите VK ID' or 'Введите Chat ID'), (choise_socnetwork.v == 1 and user_id or chat_id)) then
+            if choise_socnetwork.v == 1 then 
+                mainIni.config.user_id = user_id.v
+            else
+                mainIni.config.chat_id = chat_id.v
+            end
+            inicfg.save(mainIni, 'agesilay_notf.ini') 
         end
-        
-        if Telega.v then
-            imgui.PushItemWidth(200)
-            if imgui.InputText(u8'Введите Chat ID', chat_id) then mainIni.config.chat_id = chat_id.v; inicfg.save(mainIni, 'agesilay_notf.ini') end
-        end
-        
         imgui.Separator()
         
         if imgui.Button(u8'Тестовое сообщение') then
             local _, pID = sampGetPlayerIdByCharHandle(playerPed)
             local name = sampGetPlayerNickname(pID)
             local testmessage = name.. '[' ..pID.. '] вызвал тестовое сообщение.'
-            sampAddChatMessage('[Отправлено в ' ..(socnetwork.v and 'Telegram' or 'VK').. ']: {ffffff}' ..testmessage, 0x228fff)
+            sampAddChatMessage('[Отправлено в ' ..(choise_socnetwork.v == 1 and 'ВКонтакте' or 'Telegram').. ']: {ffffff}' ..testmessage, 0x228fff)
             lua_thread.create(function()
                 SendMessageLeader(testmessage.. '\n<' ..thisScript().version.. '> Принял: ' ..invite.. ' человек, квесты: ' ..quest.. '.')
                 wait(500)
@@ -660,15 +481,17 @@ function imgui.OnDrawFrame()
         end
         imgui.SameLine()
         if imgui.Button(u8'Перезапустить') then imgui.Process = false; thisScript():reload() end
-
         imgui.Separator()
         if imgui.Checkbox(u8'Оверлей (статистика в отдельном окне)', overlay) then mainIni.config.overlay = overlay.v; inicfg.save(mainIni, 'agesilay_notf.ini') end
-
         imgui.Separator()
-
-        imgui.Text(u8'Статистика за сегодня [' ..os.date('%d/%m/%Y', os.time(utc) + 3 * 3600).. ']:')
-        imgui.Text(u8'Принято человек - ' ..invite)
-        imgui.Text(u8'Задания - ' ..quest.. '/8')
+        imgui.CenterTextColoredRGB('{228fff}Статистика за сегодня {ffffff}| {FFFF00}' ..os.date('%d/%m/%Y'))
+        imgui.BeginChild('##members', imgui.ImVec2(295, 45), true, imgui.WindowFlags.NoScrollbar)
+            imgui.Columns(2)
+            imgui.SetColumnWidth(-1, 190); imgui.SetCursorPosX(50); imgui.TextColoredRGB('{FF0000}Принято человек'); imgui.NextColumn(); 
+            imgui.SetColumnWidth(-1, 105); imgui.CenterColumnTextColoredRGB('{098aed}'..invite); imgui.NextColumn()
+            imgui.Separator()
+            imgui.SetCursorPosX(75); imgui.TextColoredRGB('{FF0000}Задания'); imgui.NextColumn(); imgui.CenterColumnTextColoredRGB('{098aed}'..quest.. '/8')
+        imgui.EndChild()
         if imgui.Button(u8'Сброс статистики') then
             current_day = os.date('%D')
             invite = 0
@@ -719,13 +542,12 @@ function imgui.OnDrawFrame()
         imgui.Begin('##begin_fmembers', fmembers,  imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoBringToFrontOnFocus + imgui.WindowFlags.NoSavedSettings + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.AlwaysAutoResize)
         imgui.Spacing()
         imgui.CenterTextColoredRGB('Онлайн семьи: {FFFF00}'.. #members - 1) 
-        imgui.CenterTextColoredRGB('Игроков с VIP | без VIP аккаунта: {00FF00}' .. vip .. ' {ffffff}| {FF0000}' ..novip) 
-        
+        imgui.CenterTextColoredRGB('Игроков с VIP | без VIP аккаунта: {00FF00}' .. vip .. ' {ffffff}| {FF0000}' ..novip)
         imgui.Spacing()
         imgui.BeginChild('##members', imgui.ImVec2(415, 240), true, imgui.WindowFlags.NoScrollbar)
             imgui.Columns(6, nil, false)
             imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}Ранг'); imgui.NextColumn()
-            imgui.SetColumnWidth (-1, 170); imgui.TextColoredRGB('{228fff}Ник / ID'); imgui.NextColumn()
+            imgui.SetColumnWidth (-1, 170); imgui.TextColoredRGB('{228fff}Никнейм[ID]'); imgui.NextColumn()
             imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}LVL'); imgui.NextColumn()
             imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}AFK'); imgui.NextColumn()
             imgui.SetColumnWidth(-1, 80); imgui.TextColoredRGB('{228fff}ВИП'); imgui.NextColumn()
@@ -774,13 +596,13 @@ function imgui.OnDrawFrame()
                 imgui.CenterTextColoredRGB('{228fff}Информация об игроке')
                 imgui.BeginChild('##information', imgui.ImVec2(190,70), true)
                     imgui.Columns(2)
-                    imgui.SetColumnWidth(-1, 60); imgui.TextColoredRGB('{808080}Никнейм'); imgui.NextColumn()
+                    imgui.SetColumnWidth(-1, 60); imgui.TextColoredRGB('{FFFF00}Никнейм'); imgui.NextColumn()
                     imgui.SetColumnWidth(-1, 150); imgui.Text(vzName); imgui.NextColumn()
                     imgui.Separator()
-                    imgui.TextColoredRGB('{808080}Фракция'); imgui.NextColumn()
+                    imgui.TextColoredRGB('{FFFF00}Фракция'); imgui.NextColumn()
                     imgui.TextColoredRGB(hexPlayerColor .. sampGetPlayerOrganisation(vzID)); imgui.NextColumn()
                     imgui.Separator()
-                    imgui.TextColoredRGB('{808080}UID|PING'); imgui.NextColumn()
+                    imgui.TextColoredRGB('{FFFF00}UID|PING'); imgui.NextColumn()
                     imgui.TextColoredRGB((info_blacklist or 'None') .. '{ffffff} | ' ..tostring(sampGetPlayerPing(vzID))); imgui.NextColumn()
                 imgui.EndChild()
                 for i = 1, 10 do
@@ -993,11 +815,174 @@ function imgui.OnDrawFrame()
         end
         imgui.SameLine()
         if imgui.Button(u8'Закрыть',imgui.ImVec2(200,20)) then
-            fmembers.v = false
+            fmembers.v = false; selects = nil
         end
         imgui.End()
     end
 
+end
+
+function imgui.CenterTextColoredRGB(text)
+    local width = imgui.GetWindowWidth()
+    local style = imgui.GetStyle()
+    local colors = style.Colors
+    local ImVec4 = imgui.ImVec4
+
+    local explode_argb = function(argb)
+        local a = bit.band(bit.rshift(argb, 24), 0xFF)
+        local r = bit.band(bit.rshift(argb, 16), 0xFF)
+        local g = bit.band(bit.rshift(argb, 8), 0xFF)
+        local b = bit.band(argb, 0xFF)
+        return a, r, g, b
+    end
+
+    local getcolor = function(color)
+        if color:sub(1, 6):upper() == 'SSSSSS' then
+            local r, g, b = colors[1].x, colors[1].y, colors[1].z
+            local a = tonumber(color:sub(7, 8), 16) or colors[1].w * 255
+            return ImVec4(r, g, b, a / 255)
+        end
+        local color = type(color) == 'string' and tonumber(color, 16) or color
+        if type(color) ~= 'number' then return end
+        local r, g, b, a = explode_argb(color)
+        return imgui.ImColor(r, g, b, a):GetVec4()
+    end
+
+    local render_text = function(text_)
+        for w in text_:gmatch('[^\r\n]+') do
+            local textsize = w:gsub('{.-}', '')
+            local text_width = imgui.CalcTextSize(u8(textsize))
+            imgui.SetCursorPosX( width / 2 - text_width .x / 2 )
+            local text, colors_, m = {}, {}, 1
+            w = w:gsub('{(......)}', '{%1FF}')
+            while w:find('{........}') do
+                local n, k = w:find('{........}')
+                local color = getcolor(w:sub(n + 1, k - 1))
+                if color then
+                    text[#text], text[#text + 1] = w:sub(m, n - 1), w:sub(k + 1, #w)
+                    colors_[#colors_ + 1] = color
+                    m = n
+                end
+                w = w:sub(1, n - 1) .. w:sub(k + 1, #w)
+            end
+            if text[0] then
+                for i = 0, #text do
+                    imgui.TextColored(colors_[i] or colors[1], u8(text[i]))
+                    imgui.SameLine(nil, 0)
+                end
+                imgui.NewLine()
+            else
+                imgui.Text(u8(w))
+            end
+        end
+    end
+    render_text(text)
+end
+
+function imgui.TextColoredRGB(text)
+    local style = imgui.GetStyle()
+    local colors = style.Colors
+    local ImVec4 = imgui.ImVec4
+
+    local explode_argb = function(argb)
+        local a = bit.band(bit.rshift(argb, 24), 0xFF)
+        local r = bit.band(bit.rshift(argb, 16), 0xFF)
+        local g = bit.band(bit.rshift(argb, 8), 0xFF)
+        local b = bit.band(argb, 0xFF)
+        return a, r, g, b
+    end
+
+    local getcolor = function(color)
+        if color:sub(1, 6):upper() == 'SSSSSS' then
+            local r, g, b = colors[1].x, colors[1].y, colors[1].z
+            local a = tonumber(color:sub(7, 8), 16) or colors[1].w * 255
+            return ImVec4(r, g, b, a / 255)
+        end
+        local color = type(color) == 'string' and tonumber(color, 16) or color
+        if type(color) ~= 'number' then return end
+        local r, g, b, a = explode_argb(color)
+        return imgui.ImColor(r, g, b, a):GetVec4()
+    end
+
+    local render_text = function(text_)
+        for w in text_:gmatch('[^\r\n]+') do
+            local text, colors_, m = {}, {}, 1
+            w = w:gsub('{(......)}', '{%1FF}')
+            while w:find('{........}') do
+                local n, k = w:find('{........}')
+                local color = getcolor(w:sub(n + 1, k - 1))
+                if color then
+                    text[#text], text[#text + 1] = w:sub(m, n - 1), w:sub(k + 1, #w)
+                    colors_[#colors_ + 1] = color
+                    m = n
+                end
+                w = w:sub(1, n - 1) .. w:sub(k + 1, #w)
+            end
+            if text[0] then
+                for i = 0, #text do
+                    imgui.TextColored(colors_[i] or colors[1], u8(text[i]))
+                    imgui.SameLine(nil, 0)
+                end
+                imgui.NewLine()
+            else imgui.Text(u8(w)) end
+        end
+    end
+
+    render_text(text)
+end
+
+function imgui.CenterColumnTextColoredRGB(text)
+    local style = imgui.GetStyle()
+    local colors = style.Colors
+    local ImVec4 = imgui.ImVec4
+
+    local explode_argb = function(argb)
+        local a = bit.band(bit.rshift(argb, 24), 0xFF)
+        local r = bit.band(bit.rshift(argb, 16), 0xFF)
+        local g = bit.band(bit.rshift(argb, 8), 0xFF)
+        local b = bit.band(argb, 0xFF)
+        return a, r, g, b
+    end
+
+    local getcolor = function(color)
+        if color:sub(1, 6):upper() == 'SSSSSS' then
+            local r, g, b = colors[1].x, colors[1].y, colors[1].z
+            local a = tonumber(color:sub(7, 8), 16) or colors[1].w * 255
+            return ImVec4(r, g, b, a / 255)
+        end
+        local color = type(color) == 'string' and tonumber(color, 16) or color
+        if type(color) ~= 'number' then return end
+        local r, g, b, a = explode_argb(color)
+        return imgui.ImColor(r, g, b, a):GetVec4()
+    end
+
+    local render_text = function(text_)
+        for w in text_:gmatch('[^\r\n]+') do
+            local text, colors_, m = {}, {}, 1
+            w = w:gsub('{(......)}', '{%1FF}')
+            while w:find('{........}') do
+                local n, k = w:find('{........}')
+                local color = getcolor(w:sub(n + 1, k - 1))
+                if color then
+                    text[#text], text[#text + 1] = w:sub(m, n - 1), w:sub(k + 1, #w)
+                    colors_[#colors_ + 1] = color
+                    m = n
+                end
+                w = w:sub(1, n - 1) .. w:sub(k + 1, #w)
+            end
+            if text[0] then
+                for i = 0, #text do
+                    imgui.TextColored(colors_[i] or colors[1], u8(text[i]))
+                    imgui.SameLine(nil, 0)
+                end
+                imgui.NewLine()
+            else 
+                imgui.Text(u8(w)) 
+            end
+        end
+    end
+    imgui.SetCursorPosX((imgui.GetColumnOffset() + (imgui.GetColumnWidth() / 2 + 22)) - imgui.CalcTextSize(text).x / 2)
+    render_text(text)
 end
 
 function apply_custom_style()
@@ -1011,50 +996,55 @@ function apply_custom_style()
     style.ChildWindowRounding = 2.0
     style.FrameRounding = 3
     style.ItemSpacing = imgui.ImVec2(5.0, 4.0)
-    style.ScrollbarSize = 13.0
+    style.ScrollbarSize = 5.0
     style.ScrollbarRounding = 0
     style.GrabMinSize = 8.0
     style.GrabRounding = 1.0
     style.WindowPadding = imgui.ImVec2(4.0, 4.0)
     style.FramePadding = imgui.ImVec2(3.5, 3.5)
     style.ButtonTextAlign = imgui.ImVec2(0.5, 0.5)
-    colors[clr.WindowBg]              = ImVec4(0.14, 0.12, 0.16, 1.00);
-    colors[clr.ChildWindowBg]         = ImVec4(0.30, 0.20, 0.39, 0.00);
-    colors[clr.PopupBg]               = ImVec4(0.05, 0.05, 0.10, 0.90);
-    colors[clr.Border]                = ImVec4(0.89, 0.85, 0.92, 0.30);
-    colors[clr.BorderShadow]          = ImVec4(0.00, 0.00, 0.00, 0.00);
-    colors[clr.FrameBg]               = ImVec4(0.30, 0.20, 0.39, 1.00);
-    colors[clr.FrameBgHovered]        = ImVec4(0.41, 0.19, 0.63, 0.68);
-    colors[clr.FrameBgActive]         = ImVec4(0.41, 0.19, 0.63, 1.00);
-    colors[clr.TitleBg]               = ImVec4(0.41, 0.19, 0.63, 0.45);
-    colors[clr.TitleBgCollapsed]      = ImVec4(0.41, 0.19, 0.63, 0.35);
-    colors[clr.TitleBgActive]         = ImVec4(0.41, 0.19, 0.63, 0.78);
-    colors[clr.MenuBarBg]             = ImVec4(0.30, 0.20, 0.39, 0.57);
-    colors[clr.ScrollbarBg]           = ImVec4(0.30, 0.20, 0.39, 1.00);
-    colors[clr.ScrollbarGrab]         = ImVec4(0.41, 0.19, 0.63, 0.31);
-    colors[clr.ScrollbarGrabHovered]  = ImVec4(0.41, 0.19, 0.63, 0.78);
-    colors[clr.ScrollbarGrabActive]   = ImVec4(0.41, 0.19, 0.63, 1.00);
-    colors[clr.ComboBg]               = ImVec4(0.30, 0.20, 0.39, 1.00);
-    colors[clr.CheckMark]             = ImVec4(0.56, 0.61, 1.00, 1.00);
-    colors[clr.SliderGrab]            = ImVec4(0.41, 0.19, 0.63, 0.24);
-    colors[clr.SliderGrabActive]      = ImVec4(0.41, 0.19, 0.63, 1.00);
-    colors[clr.Button]                = ImVec4(0.41, 0.19, 0.63, 0.44);
-    colors[clr.ButtonHovered]         = ImVec4(0.41, 0.19, 0.63, 0.86);
-    colors[clr.ButtonActive]          = ImVec4(0.64, 0.33, 0.94, 1.00);
-    colors[clr.Header]                = ImVec4(0.41, 0.19, 0.63, 0.76);
-    colors[clr.HeaderHovered]         = ImVec4(0.41, 0.19, 0.63, 0.86);
-    colors[clr.HeaderActive]          = ImVec4(0.41, 0.19, 0.63, 1.00);
-    colors[clr.ResizeGrip]            = ImVec4(0.41, 0.19, 0.63, 0.20);
-    colors[clr.ResizeGripHovered]     = ImVec4(0.41, 0.19, 0.63, 0.78);
-    colors[clr.ResizeGripActive]      = ImVec4(0.41, 0.19, 0.63, 1.00);
-    colors[clr.CloseButton]           = ImVec4(1.00, 1.00, 1.00, 0.75);
-    colors[clr.CloseButtonHovered]    = ImVec4(0.88, 0.74, 1.00, 0.59);
-    colors[clr.CloseButtonActive]     = ImVec4(0.88, 0.85, 0.92, 1.00);
-    colors[clr.PlotLines]             = ImVec4(0.89, 0.85, 0.92, 0.63);
-    colors[clr.PlotLinesHovered]      = ImVec4(0.41, 0.19, 0.63, 1.00);
-    colors[clr.PlotHistogram]         = ImVec4(0.89, 0.85, 0.92, 0.63);
-    colors[clr.PlotHistogramHovered]  = ImVec4(0.41, 0.19, 0.63, 1.00);
-    colors[clr.TextSelectedBg]        = ImVec4(0.41, 0.19, 0.63, 0.43);
-    colors[clr.ModalWindowDarkening]  = ImVec4(0.20, 0.20, 0.20, 0.35);
+    colors[clr.Text]                   = ImVec4(0.90, 0.90, 0.90, 1.00);
+    colors[clr.TextDisabled]           = ImVec4(0.60, 0.60, 0.60, 1.00);
+    colors[clr.WindowBg]               = ImVec4(0.14, 0.12, 0.16, 1.00);
+    colors[clr.ChildWindowBg]          = ImVec4(0.30, 0.20, 0.39, 0.00);
+    colors[clr.PopupBg]                = ImVec4(0.05, 0.05, 0.10, 0.90);
+    colors[clr.Border]                 = ImVec4(0.89, 0.85, 0.92, 0.30);
+    colors[clr.BorderShadow]           = ImVec4(0.00, 0.00, 0.00, 0.00);
+    colors[clr.FrameBg]                = ImVec4(0.30, 0.20, 0.39, 1.00);
+    colors[clr.FrameBgHovered]         = ImVec4(0.41, 0.19, 0.63, 0.68);
+    colors[clr.FrameBgActive]          = ImVec4(0.41, 0.19, 0.63, 0.68);
+    colors[clr.TitleBg]                = ImVec4(0.41, 0.19, 0.63, 0.45);
+    colors[clr.TitleBgActive]          = ImVec4(0.41, 0.19, 0.63, 0.78);
+    colors[clr.TitleBgCollapsed]       = ImVec4(0.41, 0.19, 0.63, 0.35);
+    colors[clr.MenuBarBg]              = ImVec4(0.30, 0.20, 0.39, 0.57);
+    colors[clr.ScrollbarBg]            = ImVec4(0.30, 0.20, 0.39, 1.00);
+    colors[clr.ScrollbarGrab]          = ImVec4(0.41, 0.19, 0.63, 0.31);
+    colors[clr.ScrollbarGrabHovered]   = ImVec4(0.41, 0.19, 0.63, 0.78);
+    colors[clr.ScrollbarGrabActive]    = ImVec4(0.41, 0.19, 0.63, 1.00);
+    colors[clr.ComboBg]                = ImVec4(0.30, 0.20, 0.39, 1.00);
+    colors[clr.CheckMark]              = ImVec4(0.56, 0.61, 1.00, 1.00);
+    colors[clr.SliderGrab]             = ImVec4(0.41, 0.19, 0.63, 0.24);
+    colors[clr.SliderGrabActive]       = ImVec4(0.41, 0.19, 0.63, 1.00);
+    colors[clr.Button]                 = ImVec4(0.41, 0.19, 0.63, 0.44);
+    colors[clr.ButtonHovered]          = ImVec4(0.34, 0.16, 0.52, 0.86);
+    colors[clr.ButtonActive]           = ImVec4(0.64, 0.33, 0.94, 1.00);
+    colors[clr.Header]                 = ImVec4(0.41, 0.19, 0.63, 0.76);
+    colors[clr.HeaderHovered]          = ImVec4(0.27, 0.12, 0.41, 0.86);
+    colors[clr.HeaderActive]           = ImVec4(0.49, 0.23, 0.75, 1.00);
+    colors[clr.Separator]              = ImVec4(0.50, 0.50, 0.50, 1.00);
+    colors[clr.SeparatorHovered]       = ImVec4(0.60, 0.60, 0.70, 1.00);
+    colors[clr.SeparatorActive]        = ImVec4(0.70, 0.70, 0.90, 1.00);
+    colors[clr.ResizeGrip]             = ImVec4(0.41, 0.19, 0.63, 0.20);
+    colors[clr.ResizeGripHovered]      = ImVec4(0.48, 0.31, 0.65, 0.78);
+    colors[clr.ResizeGripActive]       = ImVec4(0.41, 0.19, 0.63, 1.00);
+    colors[clr.CloseButton]            = ImVec4(1.00, 1.00, 1.00, 0.75);
+    colors[clr.CloseButtonHovered]     = ImVec4(0.88, 0.74, 1.00, 0.59);
+    colors[clr.CloseButtonActive]      = ImVec4(0.88, 0.85, 0.92, 1.00);
+    colors[clr.PlotLines]              = ImVec4(0.89, 0.85, 0.92, 0.63);
+    colors[clr.PlotLinesHovered]       = ImVec4(0.41, 0.19, 0.63, 1.00);
+    colors[clr.PlotHistogram]          = ImVec4(0.89, 0.85, 0.92, 0.63);
+    colors[clr.PlotHistogramHovered]   = ImVec4(0.41, 0.19, 0.63, 1.00);
+    colors[clr.TextSelectedBg]         = ImVec4(0.41, 0.19, 0.63, 0.43);
+    colors[clr.ModalWindowDarkening]   = ImVec4(0.20, 0.20, 0.20, 0.35);
 end
 apply_custom_style()
