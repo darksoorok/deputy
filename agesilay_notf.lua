@@ -59,7 +59,7 @@ local update_state = false -- Если переменная == true, значит начнётся обновлени
 local update_url = 'https://raw.githubusercontent.com/darksoorok/deputy/main/update.ini' -- Путь к ini файлу
 local update_path = getWorkingDirectory() .. "\\config\\agesilay_update.ini"
 
-local script_url = '' -- Путь скрипту на GitHub.
+local script_url = 'https://raw.githubusercontent.com/darksoorok/deputy/main/agesilay_notf.lua' -- Путь скрипту на GitHub.
 local script_path = thisScript().path
 local check_rank = imgui.ImInt(0)
 local setrank = imgui.ImBuffer(2)
@@ -931,7 +931,9 @@ function imgui.OnDrawFrame()
                     end
                     imgui.EndPopup()
                 end
-
+            else
+                imgui.SetCursorPosY(110)
+                imgui.CenterTextColoredRGB('{808080}Выберите игрока из списка.')
             end
         imgui.EndChild()
 
@@ -980,6 +982,7 @@ function imgui.OnDrawFrame()
         imgui.SameLine()
         if imgui.Button(u8'Обновить список',imgui.ImVec2(170,20)) then
             if check_time < os.time() then
+                selects = nil
                 sampSendChat('/fmembers')
                 check_time = os.time() + 3
                 sampAddChatMessage('[Уведомления для отчётов Agesilay] {FFFFFF}Информация в таблице обновлена!', 0xBA55D3)
