@@ -110,14 +110,6 @@ function main()
     
     while true do 
         wait(0) 
-        if update_state then -- Обновление скрипта.
-            downloadUrlToFile(script_url, script_path, function(id, status)
-                if status == 6 then
-                    sampAddChatMessage("{FFFFFF}Скрипт {32CD32}успешно {FFFFFF}обновлён.", 0xFF0000)
-                end
-            end)
-            break
-        end
         imgui.Process = ages.v or overlay.v or fmembers.v; imgui.LockPlayer = ages.v or fmembers.v; imgui.ShowCursor = imgui.Process
         if overlay.v then imgui.ShowCursor = false end
         if sampGetGamestate() == 3 and sampIsLocalPlayerSpawned() and checkvip then
@@ -146,6 +138,14 @@ function main()
             inicfg.save(mainIni, 'agesilay_notf.ini')
             sampAddChatMessage('[Уведомления для отчётов Agesilay] {ffffff}Скрипт обнулил значения инвайтов и квестов, так как начался новый день.', 0xBA55D3)
             wait(10000)
+        end
+        if update_state then -- Обновление скрипта.
+            downloadUrlToFile(script_url, script_path, function(id, status)
+                if status == 6 then
+                    sampAddChatMessage('[Уведомления для отчётов Agesilay] {ffffff}Скрипт успешно обновлён.', 0xFF0000)
+                    thisScript():reload()
+                end
+            end)
         end
     end
 end
