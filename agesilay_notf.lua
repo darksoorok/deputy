@@ -2,8 +2,8 @@ script_name('Agesilay Notification')
 script_author('S&D Scripts')
 script_description('Sends messages to the family leader for job reporting.')
 script_dependencies('events, ssl.https, inicfg, imgui')
-script_version('1.9.0')
-script_version_number(1)
+script_version('1.9.1')
+script_version_number(2)
 
 local sampev    =   require 'lib.samp.events'
 local https     =   require 'ssl.https'
@@ -665,7 +665,7 @@ function imgui.OnDrawFrame()
                             ['Флуд'] = 10,
                             ['Капс'] = 10,
                             ['Нерациональное исп.симв.'] = 10,
-                            ['Реклама (промежуток 3 мин)'] = 30,
+                            ['Промежуток рекламы 3 мин.'] = 30,
                             ['Оскорбление'] = 60,
                             ['Неадекват'] = 100,
                             ['Провокация конфликта'] = 30,
