@@ -2,7 +2,7 @@ script_name('Agesilay Notification')
 script_author('S&D Scripts')
 script_description('Sends messages to the family leader for job reporting.')
 script_dependencies('events, ssl.https, inicfg, imgui')
-script_version('1.8.2')
+script_version('1.9.0')
 script_version_number(1)
 
 local sampev    =   require 'lib.samp.events'
@@ -138,7 +138,7 @@ function main()
         if update_state then -- Обновление скрипта.
             downloadUrlToFile(script_url, script_path, function(id, status)
                 if status == 6 then
-                    sampAddChatMessage('[Уведомления для отчётов Agesilay] {ffffff}Скрипт успешно обновлён.', 0xFF0000)
+                    sampAddChatMessage('[Уведомления для отчётов Agesilay] {ffffff}Скрипт успешно обновлён.', 0xBA55D3)
                 end
             end)
             break
@@ -235,9 +235,9 @@ function sampGetPlayerIdByNickname(nick)
 end
 
 function SendMessageDeputy(message)
-    if choise_socnetwork.v == 1 then
+    if choise_socnetwork.v == 1 and user_id.v ~= '' then
         https.request('https://api.vk.com/method/messages.send?v=5.107&message='..encodeUrl(message)..'&user_id='..user_id.v..'&access_token='..access_token..'&random_id='..math.random(1, 100000000))
-    else
+    elseif choise_socnetwork.v == 2 and chat_id.v ~= '' then 
         https.request('https://api.telegram.org/bot1217991754:AAGMdYsUd2YlHbdN0d-wbrEgtgkJWSPTDpE/sendMessage?chat_id='..chat_id.v..'&text='..encodeUrl(message))
     end
 end
@@ -472,7 +472,12 @@ function imgui.OnDrawFrame()
             local _, pID = sampGetPlayerIdByCharHandle(playerPed)
             local name = sampGetPlayerNickname(pID)
             local testmessage = name.. '[' ..pID.. '] вызвал тестовое сообщение.'
-            sampAddChatMessage('[Отправлено в ' ..(choise_socnetwork.v == 1 and 'ВКонтакте' or 'Telegram').. ']: {ffffff}' ..testmessage, 0x228fff)
+            local msg_responde = (choise_socnetwork.v == 1 and user_id.v or chat_id.v)
+            if msg_responde ~= '' then
+                sampAddChatMessage('[Отправлено в ' ..(choise_socnetwork.v == 1 and 'ВКонтакте' or 'Telegram').. ']: {ffffff}' ..testmessage, 0x228fff)
+            else
+                sampAddChatMessage('[Тестовое сообщение]: {ffffff}' ..testmessage, 0x228fff)
+            end
             lua_thread.create(function()
                 SendMessageLeader(testmessage.. '\n<' ..thisScript().version.. '> Принял: ' ..invite.. ' человек, квесты: ' ..quest.. '.')
                 wait(500)
@@ -983,6 +988,12 @@ function imgui.CenterColumnTextColoredRGB(text)
     end
     imgui.SetCursorPosX((imgui.GetColumnOffset() + (imgui.GetColumnWidth() / 2 + 22)) - imgui.CalcTextSize(text).x / 2)
     render_text(text)
+end
+
+function onScriptTerminate(LuaScript, quitGame)
+    if LuaScript == thisScript() then
+        if imgui then imgui.ShowCursor = false; showCursor(false) end
+    end
 end
 
 function apply_custom_style()
