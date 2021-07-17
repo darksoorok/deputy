@@ -2,8 +2,8 @@ script_name('Agesilay Notification')
 script_author('S&D Scripts')
 script_description('Sends messages to the family leader for job reporting.')
 script_dependencies('events, ssl.https, inicfg, imgui')
-script_version('1.9.1')
-script_version_number(2)
+script_version('1.9.2')
+script_version_number(3)
 
 local sampev    =   require 'lib.samp.events'
 local https     =   require 'ssl.https'
@@ -11,6 +11,7 @@ local encoding  =   require 'encoding'
 local imgui     =   require 'imgui'
 local inicfg    =   require 'inicfg'
 local keys      =   require 'vkeys'
+local memory    =   require 'memory'
 require 'lib.moonloader'
 encoding.default = 'CP1251'
 u8 = encoding.UTF8
@@ -43,11 +44,11 @@ local vipplayer = 0
 local checkvip = true
 local vzName = nil
 local selects = nil
+local work = false
 local update_state = false -- Если переменная == true, значит начнётся обновление
 
 local update_url = 'https://raw.githubusercontent.com/darksoorok/deputy/main/update.ini' -- Путь к ini файлу
 local update_path = getWorkingDirectory() .. "\\config\\agesilay_update.ini"
-
 local script_url = 'https://raw.githubusercontent.com/darksoorok/deputy/main/agesilay_notf.lua' -- Путь скрипту на GitHub.
 local script_path = thisScript().path
 local check_rank = imgui.ImInt(0)
@@ -279,9 +280,9 @@ function sampev.onServerMessage(color, text)
         return false
     end
 
-    if text:find('%[%d+%] %w+_%w+ %| Уровень%: %d+ %| UID%: %d+ %|') and check_blacklist then
+    local id_uid, level, uid = text:match('%[(%d+)%] %w+_%w+ %| Уровень%: (%d+) %| UID%: (%d+) %|')
+    if id_uid and level and uid and check_blacklist then
         updateBlacklist()
-        local id, level, uid = text:match('%[(%d+)%] %w+_%w+ %| Уровень%: (%d+) %| UID%: (%d+) %|')
         if fi then
             if tonumber(level) >= 3 then
                 for k, v in pairs(blacklist) do
@@ -291,7 +292,7 @@ function sampev.onServerMessage(color, text)
                     end
                 end
                 if not checks_blacklist then
-                    sampSendChat('/faminvite ' ..id)
+                    sampSendChat('/faminvite ' ..id_uid)
                 end
             else
                 sampSendChat('Вы слишком мало проживаете в штате. От 3-х лет приём в семью.')
@@ -307,71 +308,61 @@ function sampev.onServerMessage(color, text)
         fi = false
         checks_blacklist = false
         check_blacklist = false
+        id_uid, level, uid = nil
         return false
     end
 
-    if text:find('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} выдал бан семейного чата (%w+_%w+)%[(%d+)%], на (%d+)мин, причина%: (.+)') then
-        local name, id, name_chlen, id_chlen, min, prichina = text:match('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} выдал бан семейного чата (%w+_%w+)%[(%d+)%], на (%d+)мин, причина%: (.+)')
-        local my_text = '[Семья(Новости)] ' ..name.. '[' ..id.. '] выдал бан семейного чата ' ..name_chlen.. '[' ..id_chlen.. '] на ' ..min.. ' мин по причине: ' ..prichina.. '.'
-        if (name == nickname) then 
-            lua_thread.create(function()
-                SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>')
-                wait(500)
-                SendMessageDeputy(my_text)
-            end)      
-        end
+    local name = text:match('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[%d+%]%:%{......%}.+')
+
+    if text:find('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} выдал бан семейного чата (%w+_%w+)%[(%d+)%], на (%d+)мин, причина%: (.+)') and (name == nickname) then
+        lua_thread.create(function()
+            local my_text = text:gsub('{......}', '')
+            SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>')
+            wait(500)
+            SendMessageDeputy(my_text)
+        end)
     end
 
-    if text:find('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} выгнал из семьи (%w+_%w+)%[(%d+)%]%! Причина%: (.+)') then
-        local name, id, name_chlen, id_chlen, prichina = text:match('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} выгнал из семьи (%w+_%w+)%[(%d+)%]%! Причина: (.+)')
-        local my_text = '[Семья(Новости)] ' ..name.. '[' ..id.. '] выгнал из семьи ' ..name_chlen.. '[' ..id_chlen.. '] по причине: ' ..prichina.. '.'
-        if (name == nickname) then       
-            lua_thread.create(function()
-                SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>')
-                wait(500)
-                SendMessageDeputy(my_text)
-            end) 
-        end
+    if text:find('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} выгнал из семьи (%w+_%w+)%[(%d+)%]%! Причина%: (.+)') and (name == nickname) then     
+        lua_thread.create(function()
+            local my_text = text:gsub('{......}', '')
+            SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>')
+            wait(500)
+            SendMessageDeputy(my_text)
+        end)
     end
 
     if text:find('%{......%}%[Семья %(Беда%)%] (%w+_%w+)%[(%d+)%]%:%{......%}Получил BAN за нарушения. Репутация семьи понижена!') then
-        local name_chlen, id_chlen = text:match('%{......%}%[Семья %(Беда%)%] (%w+_%w+)%[(%d+)%]%:%{......%}Получил BAN за нарушения. Репутация семьи понижена!')
-        local my_text = '[Семья(Новости)] ' ..name.. '[' ..id.. '] выгнал из семьи ' ..name_chlen.. '[' ..id_chlen.. '] по причине: ' ..prichina.. '.'          
         lua_thread.create(function()
+            local my_text = text:gsub('{......}', '')
             SendMessageLeader(my_text)
             wait(500)
             SendMessageDeputy(my_text)
         end) 
     end
 
-    if text:find('%{......}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]:{......}%sпригласил в семью нового члена: (%w+_%w+)%[(%d+)%]') then
-        local name, id, newname, newid = text:match('%{......}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......}%sпригласил в семью нового члена%: (%w+_%w+)%[(%d+)%]')
-        local my_text = '[Семья(Новости)] ' ..name.. '[' ..id.. '] пригласил в семью нового члена: ' ..newname.. '[' ..newid.. '].'
-        if (name == nickname) then
-            lua_thread.create(function()
-                invite = invite + 1
-                mainIni.config.invite = invite
-                inicfg.save(mainIni, 'agesilay_notf.ini')
-                SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>. Принял: ' ..invite.. ' человек.')
-                wait(500)
-                SendMessageDeputy(my_text)        
-            end)
-        end
+    if text:find('%{......}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]:{......}%sпригласил в семью нового члена: (%w+_%w+)%[(%d+)%]') and (name == nickname) then
+        lua_thread.create(function()
+            local my_text = text:gsub('{......}', '')
+            invite = invite + 1
+            mainIni.config.invite = invite
+            inicfg.save(mainIni, 'agesilay_notf.ini')
+            SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>. Принял: ' ..invite.. ' человек.')
+            wait(500)
+            SendMessageDeputy(my_text)        
+        end)
     end
     
-    if text:find('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[%d+%]%:%{......%} выполнил ежедневное задание, семья получила 3EXP и репутацию') then
-        local name, id = text:match('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} выполнил ежедневное задание, семья получила 3EXP и репутацию')
-        local my_text = '[Семья(Новости)] ' ..name.. '[' ..id.. '] выполнил ежедневное задание, семья получила 3EXP и репутацию.'
-        if (name == nickname) then
-            lua_thread.create(function()
-                quest = quest + 1
-                mainIni.config.quest = quest
-                inicfg.save(mainIni, 'agesilay_notf.ini')
-                SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>. Выполнил квестов: ' ..quest.. '.')
-                wait(500)
-                SendMessageDeputy(my_text)
-            end)
-        end
+    if text:find('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[%d+%]%:%{......%} выполнил ежедневное задание') and (name == nickmame) then
+        lua_thread.create(function()
+            local my_text = text:gsub('{......}', '')
+            quest = quest + 1
+            mainIni.config.quest = quest
+            inicfg.save(mainIni, 'agesilay_notf.ini')
+            SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>. Выполнил квестов: ' ..quest.. '.')
+            wait(500)
+            SendMessageDeputy(my_text)
+        end)
     end
 
     if text:find('%[Family War%] Член семьи %w+_%w+ загрузился на территории №%d+. Семейные монеты%: %d+шт, деньги%: %$[%d+.]+') then
@@ -388,8 +379,8 @@ function sampev.onServerMessage(color, text)
     end
 
     if text:find('%{......%}%[Семья %(Новости%)%] %w+_%w+%[%d+%]:%{......%} пополнил склад семьи семейныи монетами%(%d+шт%)') then
-        local name, id, monet = text:match('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]:%{......%} пополнил склад семьи семейныи монетами%((%d+)шт%)')
-        SendMessageLeader('[Сообщение от '..nickname..'('..id_deputy..')]\n[Семья (Новости)] ' ..name.. '[' ..id.. ']: пополнил склад семьи семейныи монетами (' ..monet.. ' шт.)')
+        local my_text = text:gsub('{......}', '')
+        SendMessageLeader('[Сообщение от '..nickname..'('..id_deputy..')]\n' .. my_text)
     end
 
     if text:find('%[Family Cars%] Фургон вашей семьи был взорван и сейчас идёт ограбление! %(виновник%: %w+_%w+%)') then
@@ -397,23 +388,52 @@ function sampev.onServerMessage(color, text)
     end
 
     -- arguments
-    if text:find('%{......%}%[Семья%] %[10%] Imperator %|  Dmitry_Agesilay%[%d+%]%:%{......%}%s.+%s%d+') then -- /famunmute [id] = унмут [id] (2 arg)
-        local command, id = text:match('%{......%}%[Семья%] %[10%] Imperator %|  Dmitry_Agesilay%[%d+%]%:%{......%}%s(.+)%s(%d+)')
-        if command == 'унмут' then sampSendChat('/famunmute ' ..id) end
+    local nick_name, command, id, arg = text:match('%{......%}%[Семья%] %[10%] Imperator %|  (%w+_%w+)%[%d+%]%:%{......%}%s([^%d+]+)%s(%d+)%s(.+)')
+    if command and id and arg and (nick_name == 'Dmitry_Agesilay' or nick_name == 'Enzo_Davenport') then
+        lua_thread.create(function()
+            work = true
+            if command == 'унмут' then
+                wait(422); sampSendChat('/id ' ..sampGetPlayerNickname(id)); wait(600)
+                sampSendChat('/famunmute ' ..id) -- // /famunmute [id] //
+                takeScreenshot(800)
+            elseif command == 'ранг' then
+                wait(422); sampSendChat('/id ' ..sampGetPlayerNickname(id)); wait(600)
+                sampSendChat('/setfrank ' ..id.. ' ' ..arg) -- // /setfrank [id] [rank] //
+                takeScreenshot(800)
+            elseif command == 'кик' then
+                wait(422); sampSendChat('/id ' ..sampGetPlayerNickname(id)); wait(600)
+                sampSendChat('/famuninvite ' ..id.. ' ' ..arg) -- // /famuninvite [id] [причина] //
+                takeScreenshot(800)
+            elseif command == 'мут' and arg:find('%d+%s.+') then
+                wait(422); sampSendChat('/id ' ..sampGetPlayerNickname(id)); wait(600)
+                sampSendChat('/fammute ' ..id.. ' ' ..arg) -- // /fammute [id] [мин] [причина] //
+                takeScreenshot(800)
+            end
+            command, id, arg = nil
+            work = false
+        end)
     end
-    if text:find('%{......%}%[Семья%] %[10%] Imperator %|  Dmitry_Agesilay%[%d+%]%:%{......%}%s.+%s%d+%s%d+') then -- /setfrank [id] [rank] = ранг [id] [rank] (3 arg)
-        local command, id, rank = text:match('%{......%}%[Семья%] %[10%] Imperator %|  Dmitry_Agesilay%[%d+%]%:%{......%}%s(.+)%s(%d+)%s(%d+)')
-        if command == 'ранг' then sampSendChat('/setfrank ' ..id.. ' ' ..rank) end
-    end 
-    if text:find('%{......%}%[Семья%] %[10%] Imperator %|  Dmitry_Agesilay%[%d+%]%:%{......%}%s.+%s%d+%s.+') then -- /famuninvite [id] [reason] = кик [id] [reason] (3 arg)
-        local command, id, reason = text:match('%{......%}%[Семья%] %[10%] Imperator %|  Dmitry_Agesilay%[%d+%]%:%{......%}%s(.+)%s(%d+)%s(.+)')
-        if command == 'кик' then sampSendChat('/famuninvite ' ..id.. ' ' ..reason) end
-    end
-    if text:find('%{......%}%[Семья%] %[10%] Imperator %|  Dmitry_Agesilay%[%d+%]%:%{......%}%s.+%s%d+%s%d+%s.+') then -- /fammute [id] [time] [reason] = мут [id] [time] [reason] (4 arg)
-        local command, id, time, reason = text:match('%{......%}%[Семья%] %[10%] Imperator %|  Dmitry_Agesilay%[%d+%]%:%{......%}%s(.+)%s(%d+)%s(%d+)%s(.+)')
-        if command == 'мут' then sampSendChat('/fammute ' ..id.. ' ' ..time.. ' ' ..reason) end
-    end
+end
 
+function sampev.onSendCommand(cmd) -- функция для команд
+    if not work then
+        local cmds, id_cmd = cmd:match('([^%d+]+)%s(%d+)') 
+        if cmds == '/famuninvite' then
+            if fmembers.v then fmembers.v = false end
+            sampSendChat('/id ' ..sampGetPlayerNickname(id_cmd))
+            takeScreenshot(1500)
+            cmds, id_cmd = nil
+        end
+    end
+end
+
+function takeScreenshot(time)
+    lua_thread.create(function()
+        wait(time)
+        sampSendChat('/time'); 
+        wait(800); 
+        memory.setuint8(sampGetBase() + 0x119CBC, 1)
+    end)
 end
 
 function sampGetPlayerOrganisation(playerId)
