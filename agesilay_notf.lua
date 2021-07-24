@@ -115,15 +115,18 @@ function main()
                 while (encodeJson(vipp) == '{}') do
                     sampSendChat('/vipplayers')
                     wait(111)
-                    vip = -1
+                    vip = 0
                     novip = 0
-                    strVips = table.concat(vipp, ', ')
                 end
+                strVips = table.concat(vipp, ', ')
                 for k, v in ipairs(members) do
-                    if strVips:find(tostring(v[2])) then
-                        vip = vip + 1
-                    else
-                        novip = novip + 1
+                    local name_members = tostring(v[2])
+                    if name_members:find('%w+_%w+') then
+                        if strVips:find(name_members) then
+                            vip = vip + 1
+                        else
+                            novip = novip + 1
+                        end
                     end
                 end
                 vipp = {}
