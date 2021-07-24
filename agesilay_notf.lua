@@ -2,8 +2,8 @@ script_name('Agesilay Notification')
 script_author('S&D Scripts')
 script_description('Sends messages to the family leader for job reporting.')
 script_dependencies('events, ssl.https, inicfg, imgui')
-script_version('1.9.2')
-script_version_number(3)
+script_version('1.9.3')
+script_version_number(4)
 
 local sampev    =   require 'lib.samp.events'
 local https     =   require 'ssl.https'
@@ -39,12 +39,13 @@ local checkvip = true
 local members = {}
 local check_time = os.time()
 local vipp = {}
+local strVips = {}
 local vzID = 0
-local vipplayer = 0 
-local checkvip = true
+local vipplayer = 0
 local vzName = nil
 local selects = nil
 local work = false
+local uid_uninvite = nil
 local update_state = false -- Если переменная == true, значит начнётся обновление
 
 local update_url = 'https://raw.githubusercontent.com/darksoorok/deputy/main/update.ini' -- Путь к ini файлу
@@ -109,20 +110,25 @@ function main()
         wait(0) 
         imgui.Process = ages.v or overlay.v or fmembers.v; imgui.LockPlayer = ages.v or fmembers.v; imgui.ShowCursor = imgui.Process
         if overlay.v then imgui.ShowCursor = false end
-        if sampGetGamestate() == 3 and sampIsLocalPlayerSpawned() and checkvip then
-            sampSendChat('/vipplayers')
-            vip = -1
-            novip = 0
-            strVips = table.concat(vipp, ', ')
-            for k, v in ipairs(members) do
-                if strVips:find(tostring(v[2])) then
-                    vip = vip + 1
-                else
-                    novip = novip + 1
+        if sampGetGamestate() == 3 and sampIsLocalPlayerSpawned() then
+            if checkvip then
+                while (encodeJson(vipp) == '{}') do
+                    sampSendChat('/vipplayers')
+                    wait(111)
+                    vip = -1
+                    novip = 0
+                    strVips = table.concat(vipp, ', ')
                 end
+                for k, v in ipairs(members) do
+                    if strVips:find(tostring(v[2])) then
+                        vip = vip + 1
+                    else
+                        novip = novip + 1
+                    end
+                end
+                vipp = {}
+                checkvip = false
             end
-            vipp = {}
-            checkvip = false
         end
         if current_day ~= os.date('%D') then
             wait(3000)
@@ -248,8 +254,7 @@ function SendMessageLeader(message)
 end
 
 function sampev.onShowDialog(id, style, title, button1, button2, text)
-    if text:find('%(ранг%) Ник') and id == 0 then 
-        count = 0
+    if text:find('%(ранг%) Ник') and id == 0 then
         members = {}
         for line in text:gmatch('[^\r\n]+') do
             if text:find('(%d+)%) (%w+.%w+)%[(%d+)%]\t(%d+)\t(%d+)') then
@@ -259,7 +264,7 @@ function sampev.onShowDialog(id, style, title, button1, button2, text)
         end
         checkvip = true
         fmembers.v = true
-        sampSendDialogResponse(id, 1, count, nil)
+        sampSendDialogResponse(id, 1, 0, nil)
         return false
     end
 end
@@ -281,6 +286,7 @@ function sampev.onServerMessage(color, text)
     end
 
     local id_uid, level, uid = text:match('%[(%d+)%] %w+_%w+ %| Уровень%: (%d+) %| UID%: (%d+) %|')
+
     if id_uid and level and uid and check_blacklist then
         updateBlacklist()
         if fi then
@@ -289,6 +295,7 @@ function sampev.onServerMessage(color, text)
                     if v == tonumber(uid) then
                         sampSendChat('Вы в чёрном списке нашей семьи!')
                         checks_blacklist = true
+                        break
                     end
                 end
                 if not checks_blacklist then
@@ -303,7 +310,7 @@ function sampev.onServerMessage(color, text)
                     checks_blacklist = true
                 end
             end
-            if checks_blacklist then info_blacklist = '{ff0000}' ..uid else info_blacklist = '{98FB98}' ..uid end
+            info_blacklist = (checks_blacklist and '{FF0000}' or '{98FB98}') .. uid
         end
         fi = false
         checks_blacklist = false
@@ -312,27 +319,31 @@ function sampev.onServerMessage(color, text)
         return false
     end
 
-    local name = text:match('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[%d+%]%:%{......%}.+')
+    local names = text:match('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[%d+%]%:%{......%}.+')
 
-    if text:find('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} выдал бан семейного чата (%w+_%w+)%[(%d+)%], на (%d+)мин, причина%: (.+)') and (name == nickname) then
-        lua_thread.create(function()
-            local my_text = text:gsub('{......}', '')
-            SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>')
-            wait(500)
-            SendMessageDeputy(my_text)
-        end)
+    if text:find('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} выдал бан семейного чата (%w+_%w+)%[(%d+)%], на (%d+)мин, причина%: (.+)') then
+        if (names == nickname) then
+            lua_thread.create(function()
+                local my_text = text:gsub('{......}', '')
+                SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>')
+                wait(500)
+                SendMessageDeputy(my_text)
+            end)
+        end
     end
 
-    if text:find('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} выгнал из семьи (%w+_%w+)%[(%d+)%]%! Причина%: (.+)') and (name == nickname) then     
-        lua_thread.create(function()
-            local my_text = text:gsub('{......}', '')
-            SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>')
-            wait(500)
-            SendMessageDeputy(my_text)
-        end)
+    if text:find('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} выгнал из семьи (%w+_%w+)%[(%d+)%]%! Причина%: (.+)') then     
+        if (names == nickname) then
+            lua_thread.create(function()
+                local my_text = text:gsub('{......}', '')
+                SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>')
+                wait(500)
+                SendMessageDeputy(my_text)
+            end)
+        end
     end
 
-    if text:find('%{......%}%[Семья %(Беда%)%] (%w+_%w+)%[(%d+)%]%:%{......%}Получил BAN за нарушения. Репутация семьи понижена!') then
+    if text:find('%{......%}%[Семья %(Беда%)%] %w+_%w+%[%d+%]%:%{......%}Получил BAN за нарушения. Репутация семьи понижена!') then
         lua_thread.create(function()
             local my_text = text:gsub('{......}', '')
             SendMessageLeader(my_text)
@@ -341,28 +352,32 @@ function sampev.onServerMessage(color, text)
         end) 
     end
 
-    if text:find('%{......}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]:{......}%sпригласил в семью нового члена: (%w+_%w+)%[(%d+)%]') and (name == nickname) then
-        lua_thread.create(function()
-            local my_text = text:gsub('{......}', '')
-            invite = invite + 1
-            mainIni.config.invite = invite
-            inicfg.save(mainIni, 'agesilay_notf.ini')
-            SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>. Принял: ' ..invite.. ' человек.')
-            wait(500)
-            SendMessageDeputy(my_text)        
-        end)
+    if text:find('%{......}%[Семья %(Новости%)%] %w+_%w+%[%d+%]:{......}%sпригласил в семью нового члена: (%w+_%w+)%[(%d+)%]') then
+        if (names == nickname) then
+            lua_thread.create(function()
+                local my_text = text:gsub('{......}', '')
+                invite = invite + 1
+                mainIni.config.invite = invite
+                inicfg.save(mainIni, 'agesilay_notf.ini')
+                SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>. Принял: ' ..invite.. ' человек.')
+                wait(500)
+                SendMessageDeputy(my_text)        
+            end)
+        end
     end
     
-    if text:find('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[%d+%]%:%{......%} выполнил ежедневное задание') and (name == nickmame) then
-        lua_thread.create(function()
-            local my_text = text:gsub('{......}', '')
-            quest = quest + 1
-            mainIni.config.quest = quest
-            inicfg.save(mainIni, 'agesilay_notf.ini')
-            SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>. Выполнил квестов: ' ..quest.. '.')
-            wait(500)
-            SendMessageDeputy(my_text)
-        end)
+    if text:find('%{......%}%[Семья %(Новости%)%] %w+_%w+%[%d+%]%:%{......%} выполнил ежедневное задание') then
+        if (names == nickname) then
+            lua_thread.create(function()
+                local my_text = text:gsub('{......}', '')
+                quest = quest + 1
+                mainIni.config.quest = quest
+                inicfg.save(mainIni, 'agesilay_notf.ini')
+                SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>. Выполнил квестов: ' ..quest.. '.')
+                wait(500)
+                SendMessageDeputy(my_text)
+            end)
+        end
     end
 
     if text:find('%[Family War%] Член семьи %w+_%w+ загрузился на территории №%d+. Семейные монеты%: %d+шт, деньги%: %$[%d+.]+') then
@@ -388,44 +403,32 @@ function sampev.onServerMessage(color, text)
     end
 
     -- arguments
-    local nick_name, command, id, arg = text:match('%{......%}%[Семья%] %[10%] Imperator %|  (%w+_%w+)%[%d+%]%:%{......%}%s([^%d+]+)%s(%d+)%s(.+)')
-    if command and id and arg and (nick_name == 'Dmitry_Agesilay' or nick_name == 'Enzo_Davenport') then
-        lua_thread.create(function()
-            work = true
-            if command == 'унмут' then
-                wait(422); sampSendChat('/id ' ..sampGetPlayerNickname(id)); wait(600)
-                sampSendChat('/famunmute ' ..id) -- // /famunmute [id] //
-                takeScreenshot(800)
-            elseif command == 'ранг' then
-                wait(422); sampSendChat('/id ' ..sampGetPlayerNickname(id)); wait(600)
-                sampSendChat('/setfrank ' ..id.. ' ' ..arg) -- // /setfrank [id] [rank] //
-                takeScreenshot(800)
-            elseif command == 'кик' then
-                wait(422); sampSendChat('/id ' ..sampGetPlayerNickname(id)); wait(600)
-                sampSendChat('/famuninvite ' ..id.. ' ' ..arg) -- // /famuninvite [id] [причина] //
-                takeScreenshot(800)
-            elseif command == 'мут' and arg:find('%d+%s.+') then
-                wait(422); sampSendChat('/id ' ..sampGetPlayerNickname(id)); wait(600)
-                sampSendChat('/fammute ' ..id.. ' ' ..arg) -- // /fammute [id] [мин] [причина] //
-                takeScreenshot(800)
-            end
-            command, id, arg = nil
-            work = false
+    local nick_name, cmd, arg = text:match('%{......%}%[Семья%] %[10%] Imperator %|  (%w+_%w+)%[%d+%]%:%{......%}%s([^%d+]+)%s(.+)')
+    if cmd and arg and (nick_name == 'Enzo_Davenport' or nick_name == 'Dmitry_Agesilay') then
+        lua_thread.create(function() 
+            local arr_cmd = {
+                ['кик'] = '/famuninvite', 
+                ['мут'] = '/fammute', 
+                ['ранг'] = '/setfrank', 
+                ['унмут'] = '/famunmute'
+            }
+            wait(600); sampAddChatMessage(arr_cmd[cmd] .. ' ' ..arg,-1)
+            cmd, arg, nick_name = nil
         end)
     end
 end
 
-function sampev.onSendCommand(cmd) -- функция для команд
-    if not work then
-        local cmds, id_cmd = cmd:match('([^%d+]+)%s(%d+)') 
-        if cmds == '/famuninvite' then
-            if fmembers.v then fmembers.v = false end
-            sampSendChat('/id ' ..sampGetPlayerNickname(id_cmd))
-            takeScreenshot(1500)
-            cmds, id_cmd = nil
-        end
-    end
-end
+-- function sampev.onSendCommand(cmd) -- функция для команд
+--     if not work then
+--         local cmds, id_cmd = cmd:match('([^%d+]+)%s(%d+)') 
+--         if cmds == '/famuninvite' then
+--             if fmembers.v then fmembers.v = false end
+--             sampSendChat('/id ' ..sampGetPlayerNickname(id_cmd))
+--             takeScreenshot(1500)
+--             cmds, id_cmd = nil
+--         end
+--     end
+-- end
 
 function takeScreenshot(time)
     lua_thread.create(function()
@@ -660,7 +663,8 @@ function imgui.OnDrawFrame()
                             'Оскорбление', 'Упоминание родных', 'Пропаганда', 'Неадекват' 
                         }) do
                             if imgui.Button(u8(v), imgui.ImVec2(192,20)) then
-                                sampSendChat('/famuninvite ' ..vzID.. ' ' ..v)
+                                local vzUID = info_blacklist:gsub('{......}','')
+                                sampSendChat('/famuninvite ' ..vzID.. ' ' ..v.. ' (UID: ' ..vzUID.. ')')
                                 selects = nil
                                 imgui.CloseCurrentPopup()
                             end
@@ -754,7 +758,8 @@ function imgui.OnDrawFrame()
                     imgui.PushItemWidth(300)
                     if imgui.InputText(u8'##123', uninvite, imgui.InputTextFlags.EnterReturnsTrue) then
                         if uninvite.v ~= '' and uninvite.v ~= nil then
-                            sampSendChat('/famuninvite '..vzID..' '..u8:decode(uninvite.v))
+                            local vzUID = info_blacklist:gsub('{......}','')
+                            sampSendChat('/famuninvite '..vzID..' '..u8:decode(uninvite.v).. ' (UID: ' ..vzUID.. ')')
                             uninvite.v = ''
                             selects = nil
                             imgui.CloseCurrentPopup()
@@ -765,7 +770,8 @@ function imgui.OnDrawFrame()
                     imgui.NewLine()
                     if imgui.Button(u8'Уволить',imgui.ImVec2(300,25)) then
                         if uninvite.v ~= '' and uninvite.v ~= nil then
-                            sampSendChat('/famuninvite '..vzID..' '..u8:decode(uninvite.v))
+                            local vzUID = info_blacklist:gsub('{......}','')
+                            sampSendChat('/famuninvite '..vzID..' '..u8:decode(uninvite.v).. ' (UID: ' ..vzUID.. ')')
                             uninvite.v = ''
                             selects = nil
                             imgui.CloseCurrentPopup()
