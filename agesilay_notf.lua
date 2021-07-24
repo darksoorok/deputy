@@ -412,7 +412,7 @@ function sampev.onServerMessage(color, text)
                 ['ранг'] = '/setfrank', 
                 ['унмут'] = '/famunmute'
             }
-            wait(600); sampAddChatMessage(arr_cmd[cmd] .. ' ' ..arg,-1)
+            wait(600); sampSendChat(arr_cmd[cmd] .. ' ' ..arg)
             cmd, arg, nick_name = nil
         end)
     end
