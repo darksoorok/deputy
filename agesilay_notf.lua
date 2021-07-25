@@ -2,8 +2,8 @@ script_name('Agesilay Notification')
 script_author('S&D Scripts')
 script_description('Sends messages to the family leader for job reporting.')
 script_dependencies('events, ssl.https, inicfg, imgui')
-script_version('1.9.3')
-script_version_number(4)
+script_version('1.9.4')
+script_version_number(5)
 
 local sampev    =   require 'lib.samp.events'
 local https     =   require 'ssl.https'
@@ -39,13 +39,9 @@ local checkvip = true
 local members = {}
 local check_time = os.time()
 local vipp = {}
-local strVips = {}
 local vzID = 0
-local vipplayer = 0
 local vzName = nil
 local selects = nil
-local work = false
-local uid_uninvite = nil
 local update_state = false -- Если переменная == true, значит начнётся обновление
 
 local update_url = 'https://raw.githubusercontent.com/darksoorok/deputy/main/update.ini' -- Путь к ini файлу
@@ -63,6 +59,7 @@ local addname = imgui.ImBuffer(150)
 local addprich = imgui.ImBuffer(150)
 local ages = imgui.ImBool(false)
 local overlay = imgui.ImBool(mainIni.config.overlay)
+local offkick = imgui.ImBool(false)
 local fmembers = imgui.ImBool(false)
 local sw, sh = getScreenResolution()
 local user_id = imgui.ImBuffer(u8(mainIni.config.user_id), 256)
@@ -86,6 +83,14 @@ end
 function main()
 	if not isSampLoaded() or not isSampfuncsLoaded() then return end
     while not isSampAvailable() do wait(100) end;
+
+    local result, nameServ = checkServer(select(1, sampGetCurrentServerAddress()))
+    
+    if not result then
+		print('{ff0000}Ошибка: {ffffff}скрипт работает только на проекте {FA8072}Arizona RP.')
+		thisScript():unload()
+    end
+
     while not sampIsLocalPlayerSpawned() do wait(130) end
     
     check_update()
@@ -257,6 +262,41 @@ function SendMessageLeader(message)
 end
 
 function sampev.onShowDialog(id, style, title, button1, button2, text)
+    --sampAddChatMessage(id .. ',  ' ..style.. ', ' ..title,-1)
+    if id == 2931 and style == 5 and title == '{BFBBBA}Участники семьи (оффлайн)' and offkick.v then
+        local count = 0
+        for v in string.gmatch(text, '[^\n]+') do
+            local nick, family, rank, days = v:match('{......}(%w+)_(%w+)\t%((%d+)%).+\t(%d+) дней')
+            if nick and family and rank and days and tonumber(days) > 3 then
+                local nick_name = nick .. '_' .. family
+                if nick_name ~= 'Viktor_Agesilay' and nick_name ~= 'Dmitry_Agesilay' and nick_name ~= 'Corrado_Uchida' and nick_name ~= 'Enzo_Davenport' then
+                    if (family == 'Agesilay' and tonumber(rank) == 7 and tonumber(days) >= 30) or (family == 'Agesilay' and tonumber(rank) == 8 and tonumber(days) >= 45) or (tonumber(rank) >= 5 and tonumber(rank) <= 6 and tonumber(days) >= 10) or (tonumber(rank) < 5 and tonumber(days) >= 4) then
+                        lua_thread.create(function()
+                            sampAddChatMessage('[OffMembers] {ffffff}'..nick_name .. '(' ..rank.. ') время отсутствия: ' ..days.. ' дня(-ей)', 0xBA55D3)
+                            wait(1700)
+                            sampSendDialogResponse(id, 1, count, nick_name)
+                        end)
+                        break
+                    end
+                end
+            end
+            if v:find('{B0E73A}Вперед >>>') then
+                sampAddChatMessage('[OffMembers] {ffffff}Некого кикать. Перейди на следующую страницу либо останови работу функции.', 0xBA55D3)
+                break
+            end
+            count = count + 1
+        end
+    end
+    if id == 2932 and style == 0 and offkick.v then
+        lua_thread.create(function()
+            wait(300)
+            sampSendDialogResponse(2932, 1, 0, nil)
+            wait(1000)
+            sampCloseCurrentDialogWithButton(1)
+            offMembers()
+        end)
+        
+    end
     if text:find('%(ранг%) Ник') and id == 0 then
         members = {}
         for line in text:gmatch('[^\r\n]+') do
@@ -278,17 +318,19 @@ function sampev.onServerMessage(color, text)
         table.insert(vipp, getname) 
         return false
     end
-    if text:find('Всего: (%d+) человек') then 
-        vipplayer = text:match('Всего: (%d+) человек') 
+
+    local vipplayer = text:match('Всего: (%d+) человек')
+    if vipplayer then
         if #vipp == tonumber(vipplayer) then
             sampfuncsLog('{BA55D3}[Уведомления для отчётов Agesilay] {FFFFFF}Информация о VIP обновлена.')
         else
             sampfuncsLog('{BA55D3}[Уведомления для отчётов Agesilay] {FFFFFF}Ошибка обновления информации о VIP! '..#vipp..' ~= '..vipplayer, 0xBA55D3)
         end
+        vipplayer = 0
         return false
     end
 
-    local id_uid, level, uid = text:match('%[(%d+)%] %w+_%w+ %| Уровень%: (%d+) %| UID%: (%d+) %|')
+    local id_uid, level, uid, platform = text:match('%[(%d+)%] %w+_%w+ %| Уровень%: (%d+) %| UID%: (%d+) %| packetloss%: %d+%.%d+ %((.+)%)')
 
     if id_uid and level and uid and check_blacklist then
         updateBlacklist()
@@ -314,6 +356,12 @@ function sampev.onServerMessage(color, text)
                 end
             end
             info_blacklist = (checks_blacklist and '{FF0000}' or '{98FB98}') .. uid
+            local arr_platform = {
+                ['без лаунчера'] = '{b523de}Client',
+                ['лаунчер'] = '{bf3634}Launcher',
+                ['мобильный лаунчер'] = '{63de4e}Mobile'
+            }
+            info_platform = arr_platform[platform]
         end
         fi = false
         checks_blacklist = false
@@ -407,7 +455,7 @@ function sampev.onServerMessage(color, text)
 
     -- arguments
     local nick_name, cmd, arg = text:match('%{......%}%[Семья%] %[10%] Imperator %|  (%w+_%w+)%[%d+%]%:%{......%}%s([^%d+]+)%s(.+)')
-    if cmd and arg and (nick_name == 'Enzo_Davenport' or nick_name == 'Dmitry_Agesilay') then
+    if cmd and cmd:find(('кик' or 'мут' or 'ранг' or 'унмут')) and arg and (nick_name == 'Enzo_Davenport' or nick_name == 'Dmitry_Agesilay') then
         lua_thread.create(function() 
             local arr_cmd = {
                 ['кик'] = '/famuninvite', 
@@ -533,7 +581,12 @@ function imgui.OnDrawFrame()
             inicfg.save(mainIni, 'agesilay_notf.ini')
             sampAddChatMessage('[Уведомления для отчётов Agesilay] {ffffff}Статистика успешно сброшена.', 0xBA55D3)
         end
-        
+        imgui.SameLine()
+        if imgui.Checkbox(u8'Kick players in OffMembers', offkick) then
+            if offkick.v then
+                offMembers()
+            end
+        end
         imgui.End()
     end
 
@@ -575,7 +628,7 @@ function imgui.OnDrawFrame()
         imgui.CenterTextColoredRGB('Онлайн семьи: {FFFF00}'.. #members - 1) 
         imgui.CenterTextColoredRGB('Игроков с VIP | без VIP аккаунта: {00FF00}' .. vip .. ' {ffffff}| {FF0000}' ..novip)
         imgui.Spacing()
-        imgui.BeginChild('##members', imgui.ImVec2(415, 240), true, imgui.WindowFlags.NoScrollbar)
+        imgui.BeginChild('##members', imgui.ImVec2(415, 260), true, imgui.WindowFlags.NoScrollbar)
             imgui.Columns(6, nil, false)
             imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}Ранг'); imgui.NextColumn()
             imgui.SetColumnWidth (-1, 170); imgui.TextColoredRGB('{228fff}Никнейм[ID]'); imgui.NextColumn()
@@ -621,11 +674,11 @@ function imgui.OnDrawFrame()
             end
         imgui.EndChild()
         imgui.SameLine()
-        imgui.BeginChild('##infoplayer', imgui.ImVec2(200, 240), true)
+        imgui.BeginChild('##infoplayer', imgui.ImVec2(200, 260), true)
             if selects then
                 local hexPlayerColor = string.format('{%0.6x}', bit.band(sampGetPlayerColor(vzID),0xffffff))
                 imgui.CenterTextColoredRGB('{228fff}Информация об игроке')
-                imgui.BeginChild('##information', imgui.ImVec2(190,70), true)
+                imgui.BeginChild('##information', imgui.ImVec2(190,90), true)
                     imgui.Columns(2)
                     imgui.SetColumnWidth(-1, 60); imgui.TextColoredRGB('{FFFF00}Никнейм'); imgui.NextColumn()
                     imgui.SetColumnWidth(-1, 150); imgui.Text(vzName); imgui.NextColumn()
@@ -633,8 +686,11 @@ function imgui.OnDrawFrame()
                     imgui.TextColoredRGB('{FFFF00}Фракция'); imgui.NextColumn()
                     imgui.TextColoredRGB(hexPlayerColor .. sampGetPlayerOrganisation(vzID)); imgui.NextColumn()
                     imgui.Separator()
-                    imgui.TextColoredRGB('{FFFF00}UID|PING'); imgui.NextColumn()
+                    imgui.TextColoredRGB('{FFFF00}UID|PING'); imgui.NextColumn() 
                     imgui.TextColoredRGB((info_blacklist or 'None') .. '{ffffff} | ' ..tostring(sampGetPlayerPing(vzID))); imgui.NextColumn()
+                    imgui.Separator()
+                    imgui.TextColoredRGB('{FFFF00}Platform'); imgui.NextColumn()
+                    imgui.TextColoredRGB((info_platform or 'None')); imgui.NextColumn()
                 imgui.EndChild()
                 for i = 1, 10 do
                     if imgui.RadioButton(i.. '##' ..i, check_rank, i) then
@@ -724,6 +780,9 @@ function imgui.OnDrawFrame()
                     imgui.PushItemWidth(240)
                     if imgui.InputText(u8'##123', setmute, imgui.InputTextFlags.EnterReturnsTrue) then
                         if setmute.v ~= '' and setmute.v ~= nil and settime.v ~= '' and settime.v ~= nil then
+                            sampSendChat('/fammute '..vzID..' '..settime.v.. ' ' ..u8:decode(setmute.v))
+                            setmute.v = ''
+                            settime.v = ''
                             imgui.CloseCurrentPopup()
                         else
                             sampAddChatMessage('[Уведомления для отчётов Agesilay] {FFFFFF}Заполните все поля или закройте выдачу мута!', 0xBA55D3)
@@ -733,6 +792,9 @@ function imgui.OnDrawFrame()
                     imgui.PushItemWidth(50)
                     if imgui.InputText(u8'##12333', settime, imgui.InputTextFlags.EnterReturnsTrue) then
                         if setmute.v ~= '' and setmute.v ~= nil and settime.v ~= '' and settime.v ~= nil then
+                            sampSendChat('/fammute '..vzID..' '..settime.v.. ' ' ..u8:decode(setmute.v))
+                            setmute.v = ''
+                            settime.v = ''
                             imgui.CloseCurrentPopup()
                         else
                             sampAddChatMessage('[Уведомления для отчётов Agesilay] {FFFFFF}Заполните все поля или закройте выдачу мута!', 0xBA55D3)
@@ -854,6 +916,10 @@ function imgui.OnDrawFrame()
         imgui.End()
     end
 
+end
+
+function offMembers()
+    sampSendChat('/fammenu'); sampSendClickTextdraw(2070)
 end
 
 function imgui.CenterTextColoredRGB(text)
@@ -1023,6 +1089,32 @@ function onScriptTerminate(LuaScript, quitGame)
     if LuaScript == thisScript() then
         if imgui then imgui.ShowCursor = false; showCursor(false) end
     end
+end
+
+function checkServer(ip)
+	for k, v in pairs({
+			['Phoenix'] 	= '185.169.134.3',
+			['Tucson'] 		= '185.169.134.4',
+			['Scottdale']	= '185.169.134.43',
+			['Chandler'] 	= '185.169.134.44', 
+			['Brainburg'] 	= '185.169.134.45',
+			['Saint Rose'] 	= '185.169.134.5',
+			['Mesa'] 		= '185.169.134.59',
+			['Red Rock'] 	= '185.169.134.61',
+			['Yuma'] 		= '185.169.134.107',
+			['Surprise'] 	= '185.169.134.109',
+			['Prescott'] 	= '185.169.134.166',
+			['Glendale'] 	= '185.169.134.171',
+			['Kingman'] 	= '185.169.134.172',
+			['Winslow'] 	= '185.169.134.173',
+			['Payson'] 		= '185.169.134.174',
+			['Gilbert']		= '80.66.82.191'
+		}) do
+		if v == ip then 
+			return true, k
+		end
+	end
+	return false
 end
 
 function apply_custom_style()
