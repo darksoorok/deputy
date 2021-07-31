@@ -2,8 +2,8 @@ script_name('Agesilay Notification')
 script_author('S&D Scripts')
 script_description('Sends messages to the family leader for job reporting.')
 script_dependencies('events, ssl.https, inicfg, imgui')
-script_version('1.9.4')
-script_version_number(5)
+script_version('1.9.5')
+script_version_number(6)
 
 local sampev    =   require 'lib.samp.events'
 local https     =   require 'ssl.https'
@@ -71,11 +71,10 @@ function check_update() -- Проверка обновлений
     downloadUrlToFile(update_url, update_path, function(id, status)
         if status == 6 then
             updateIni = inicfg.load(nil, update_path)
-            if tonumber(updateIni.info.vers) > thisScript().version_num then -- Сверяем версию в скрипте и в ini файле на github
+            if updateIni and (tonumber(updateIni.info.vers) > thisScript().version_num) then -- Сверяем версию в скрипте и в ini файле на github
                 sampAddChatMessage('[Уведомления для отчётов Agesilay] {FFFFFF}Найдена новая версия скрипта {228fff}' ..updateIni.info.vers_text..'{FFFFFF}. Скачиваю...', 0xBA55D3)
                 update_state = true
             end
-            os.remove(update_path)
         end
     end)
 end
@@ -95,7 +94,7 @@ function main()
     
     check_update()
     updateBlacklist()
-    
+    wait(1000)
     print('{ffffff}Скрипт {9ACD32}успешно загружен.{ffffff} Версия скрипта: {ff0000}' ..thisScript().version)
     _, id_deputy = sampGetPlayerIdByCharHandle(playerPed)
     nickname = sampGetPlayerNickname(id_deputy)
@@ -104,12 +103,13 @@ function main()
     if not current_day then
         current_day = os.date('%D')
     end
-    
     sampRegisterChatCommand('deputy', function()
 		ages.v = not ages.v
     end)
     sampRegisterChatCommand('fi', faminvite)
     sampRegisterChatCommand("fm", function() sampSendChat("/fmembers") end)
+
+    if doesFileExist(update_path) then os.remove(update_path) end
     
     while true do 
         wait(0) 
