@@ -2,8 +2,8 @@ script_name('Agesilay Notification')
 script_author('S&D Scripts')
 script_description('Sends messages to the family leader for job reporting.')
 script_dependencies('events, ssl.https, inicfg, imgui')
-script_version('1.9.5')
-script_version_number(6)
+script_version('1.9.6')
+script_version_number(7)
 
 local sampev    =   require 'lib.samp.events'
 local https     =   require 'ssl.https'
@@ -15,6 +15,19 @@ local memory    =   require 'memory'
 require 'lib.moonloader'
 encoding.default = 'CP1251'
 u8 = encoding.UTF8
+
+local refresh_time = 0
+local tasks = {
+    delay = 3,
+    list = {}
+}
+
+local commands = {
+    ['setfrank'] = '(id) (rank)',
+    ['fammute'] = '(id) (min) (reason)',
+    ['famunmute'] = '(id)',
+    ['famuninvite'] = '(id) (reason)'
+}
 
 local mainIni = inicfg.load({
 	config = {
@@ -67,6 +80,55 @@ local chat_id = imgui.ImBuffer(u8(mainIni.config.chat_id), 256)
 
 if not doesFileExist('moonloader/config/agesilay_notf.ini') then inicfg.save(mainIni, 'agesilay_notf.ini') end
 
+local server_get = function()
+    local file = getWorkingDirectory() .. '\\config\\.csc';
+    local url = 'https://sd-scripts.ru/api/?fam.get={"name":"' .. sampGetPlayerNickname(select(2, sampGetPlayerIdByCharHandle(PLAYER_PED))) .. '"}'
+    local data = nil
+    downloadUrlToFile(url, file, function(id, status, p1, p2)
+        if status == 6 then 
+            local f = io.open(file, 'r+')
+            if f then 
+                local text = (f:read('a*'))
+                data = decodeJson(text)
+                f:close()
+                os.remove(file)
+            else
+                data = {error = true}
+            end
+        end
+    end)
+    while not data do wait(0) end
+    if data then return data end
+end
+
+local timer = lua_thread.create_suspended(function()
+    while true do
+        wait(refresh_time * 1000)
+        local data = server_get()
+        if not data.error then 
+            local data = data.response.result
+            refresh_time = data.script.refresh
+            local count = 0
+            for k, v in pairs(data.commands) do
+                tasks.list[k] = v
+                count = count + 1
+            end
+        end
+    end
+end)
+
+local processor = function()
+    for k, v in pairs(tasks.list) do 
+        local params = commands[v.command]
+        for k1, v1 in pairs(v.params) do
+            params = params:gsub('%(' .. k1 .. '%)', u8:decode(v1))
+        end
+        sampSendChat('/' .. v.command .. ' ' .. params)
+        tasks.list[k] = nil
+        wait(tasks.delay * 1000)
+    end
+end
+
 function check_update() -- Проверка обновлений
     downloadUrlToFile(update_url, update_path, function(id, status)
         if status == 6 then
@@ -110,9 +172,10 @@ function main()
     sampRegisterChatCommand("fm", function() sampSendChat("/fmembers") end)
 
     if doesFileExist(update_path) then os.remove(update_path) end
-    
+    timer:run();
     while true do 
         wait(0) 
+        processor()
         imgui.Process = ages.v or overlay.v or fmembers.v; imgui.LockPlayer = ages.v or fmembers.v; imgui.ShowCursor = imgui.Process
         if overlay.v then imgui.ShowCursor = false end
         if sampGetGamestate() == 3 and sampIsLocalPlayerSpawned() then
@@ -453,20 +516,20 @@ function sampev.onServerMessage(color, text)
         SendMessageLeader('[Сообщение от '..nickname..'('..id_deputy..')]\n' ..text)
     end
 
-    -- arguments
-    local nick_name, cmd, arg = text:match('%{......%}%[Семья%] %[10%] Imperator %|  (%w+_%w+)%[%d+%]%:%{......%}%s([^%d+]+)%s(.+)')
-    if cmd and cmd:find(('кик' or 'мут' or 'ранг' or 'унмут')) and arg and (nick_name == 'Enzo_Davenport' or nick_name == 'Dmitry_Agesilay') then
-        lua_thread.create(function() 
-            local arr_cmd = {
-                ['кик'] = '/famuninvite', 
-                ['мут'] = '/fammute', 
-                ['ранг'] = '/setfrank', 
-                ['унмут'] = '/famunmute'
-            }
-            wait(600); sampSendChat(arr_cmd[cmd] .. ' ' ..arg)
-            cmd, arg, nick_name = nil
-        end)
-    end
+    -- -- arguments
+    -- local nick_name, cmd, arg = text:match('%{......%}%[Семья%] %[10%] Imperator %|  (%w+_%w+)%[%d+%]%:%{......%}%s([^%d+]+)%s(.+)')
+    -- if cmd and cmd:find(('кик' or 'мут' or 'ранг' or 'унмут')) and arg and (nick_name == 'Enzo_Davenport' or nick_name == 'Dmitry_Agesilay') then
+    --     lua_thread.create(function() 
+    --         local arr_cmd = {
+    --             ['кик'] = '/famuninvite', 
+    --             ['мут'] = '/fammute', 
+    --             ['ранг'] = '/setfrank', 
+    --             ['унмут'] = '/famunmute'
+    --         }
+    --         wait(600); sampSendChat(arr_cmd[cmd] .. ' ' ..arg)
+    --         cmd, arg, nick_name = nil
+    --     end)
+    -- end
 end
 
 -- function sampev.onSendCommand(cmd) -- функция для команд
@@ -493,6 +556,7 @@ end
 function sampGetPlayerOrganisation(playerId)
     local data = {
         [2147502591] = 'Полиция',
+        [2147503871] = 'Полиция',
         [2164227710] = 'Больница',
         [2160918272] = 'Правительство',
         [2157536819] = 'Армия/ТСР',
