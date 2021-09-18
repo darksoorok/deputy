@@ -2,8 +2,8 @@ script_name('Agesilay Notification')
 script_author('S&D Scripts')
 script_description('Sends messages to the family leader for job reporting.')
 script_dependencies('events, ssl.https, inicfg, imgui')
-script_version('1.9.6')
-script_version_number(7)
+script_version('1.9.7')
+script_version_number(8)
 
 local sampev    =   require 'lib.samp.events'
 local https     =   require 'ssl.https'
@@ -150,6 +150,13 @@ function main()
     if not result then
 		print('{ff0000}Ошибка: {ffffff}скрипт работает только на проекте {FA8072}Arizona RP.')
 		thisScript():unload()
+    end
+
+    if memory.tohex(getModuleHandle("samp.dll") + 0xBABE, 10, true ) == "E86D9A0A0083C41C85C0" then
+        sampIsLocalPlayerSpawned = function()
+            local res, id = sampGetPlayerIdByCharHandle(PLAYER_PED)
+            return sampGetGamestate() == 3 and res and sampGetPlayerAnimationId(id) ~= 0
+        end
     end
 
     while not sampIsLocalPlayerSpawned() do wait(130) end
@@ -314,14 +321,14 @@ end
 
 function SendMessageDeputy(message)
     if choise_socnetwork.v == 1 and user_id.v ~= '' then
-        https.request('https://api.vk.com/method/messages.send?v=5.107&message='..encodeUrl(message)..'&user_id='..user_id.v..'&access_token='..access_token..'&random_id='..math.random(1, 100000000))
+        https.request('https://api.vk.com/method/messages.send?v=5.131&message='..encodeUrl(message)..'&user_id='..user_id.v..'&access_token='..access_token..'&random_id='..math.random(-2147483648, 2147483647))
     elseif choise_socnetwork.v == 2 and chat_id.v ~= '' then 
         https.request('https://api.telegram.org/bot1217991754:AAGMdYsUd2YlHbdN0d-wbrEgtgkJWSPTDpE/sendMessage?chat_id='..chat_id.v..'&text='..encodeUrl(message))
     end
 end
 
 function SendMessageLeader(message)
-    https.request('https://api.vk.com/method/messages.send?v=5.107&message='..encodeUrl(message).. '&user_id=189170595&access_token='..access_token..'&random_id='..math.random(1, 100000000))
+    https.request('https://api.vk.com/method/messages.send?v=5.131&message='..encodeUrl(message).. '&user_id=189170595&access_token='..access_token..'&random_id='..math.random(-2147483648, 2147483647))
 end
 
 function sampev.onShowDialog(id, style, title, button1, button2, text)
@@ -332,7 +339,7 @@ function sampev.onShowDialog(id, style, title, button1, button2, text)
             local nick, family, rank, days = v:match('{......}(%w+)_(%w+)\t%((%d+)%).+\t(%d+) дней')
             if nick and family and rank and days and tonumber(days) > 3 then
                 local nick_name = nick .. '_' .. family
-                if nick_name ~= 'Viktor_Agesilay' and nick_name ~= 'Dmitry_Agesilay' and nick_name ~= 'Corrado_Uchida' and nick_name ~= 'Enzo_Davenport' then
+                if nick_name ~= 'Viktor_Agesilay' and nick_name ~= 'Dmitry_Agesilay' and nick_name ~= 'Corrado_Uchida' and nick_name ~= 'Ezio_Agesilay' then
                     if (family == 'Agesilay' and tonumber(rank) == 7 and tonumber(days) >= 30) or (family == 'Agesilay' and tonumber(rank) == 8 and tonumber(days) >= 45) or (tonumber(rank) >= 5 and tonumber(rank) <= 6 and tonumber(days) >= 10) or (tonumber(rank) < 5 and tonumber(days) >= 4) then
                         lua_thread.create(function()
                             sampAddChatMessage('[OffMembers] {ffffff}'..nick_name .. '(' ..rank.. ') время отсутствия: ' ..days.. ' дня(-ей)', 0xBA55D3)
