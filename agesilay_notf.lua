@@ -2,11 +2,12 @@ script_name('Agesilay Notification')
 script_author('S&D Scripts')
 script_description('Sends messages to the family leader for job reporting.')
 script_dependencies('events, ssl.https, inicfg, imgui')
-script_version('1.9.7')
-script_version_number(8)
+script_version('1.9.8')
+script_version_number(9)
 
 local sampev    =   require 'lib.samp.events'
 local https     =   require 'ssl.https'
+local effil     =   require 'effil'
 local encoding  =   require 'encoding'
 local imgui     =   require 'imgui'
 local inicfg    =   require 'inicfg'
@@ -29,7 +30,7 @@ local commands = {
     ['famuninvite'] = '(id) (reason)'
 }
 
-local mainIni = inicfg.load({
+local cfg = inicfg.load({
 	config = {
         socnetwork = 1,
         chat_id = '',
@@ -40,19 +41,33 @@ local mainIni = inicfg.load({
         overlay = false,
         overlay_pos_x = 200,
         overlay_pos_y = 200
-	}
+	},
+    setrank = {
+        rank_1 = 4,
+        rank_2 = 4,
+        rank_3 = 4,
+        rank_4 = 4,
+        rank_5 = 10,
+        rank_6 = 10,
+        rank_7 = 30,
+        rank_8 = 45
+    }
 }, 'agesilay_notf.ini')
 
 local access_token = '15c68b42cbf7c09a141c924adafbc7da0e5b85544c09d2827cf03d80fb8830aed43118e0dbeab212483cc'
 local settings = {}
-local invite = mainIni.config.invite
-local quest = mainIni.config.quest
-local current_day = mainIni.config.current_day
+local invite = cfg.config.invite
+local quest = cfg.config.quest
+local current_day = cfg.config.current_day
 local checkvip = true
 local members = {}
+local offmembers = {}
 local check_time = os.time()
 local vipp = {}
 local vzID = 0
+local imbool = {}
+local checkfmembers = false
+local checkoffmembers = false
 local vzName = nil
 local selects = nil
 local update_state = false -- Если переменная == true, значит начнётся обновление
@@ -61,8 +76,23 @@ local update_url = 'https://raw.githubusercontent.com/darksoorok/deputy/main/upd
 local update_path = getWorkingDirectory() .. "\\config\\agesilay_update.ini"
 local script_url = 'https://raw.githubusercontent.com/darksoorok/deputy/main/agesilay_notf.lua' -- Путь скрипту на GitHub.
 local script_path = thisScript().path
+local activeCheckbox = 0
+local active_kickOffPlayer = false
+local arr_kick = {}
+for i = 1,500 do
+    imbool[i] = imgui.ImBool(false)
+end
+local rank_1 = imgui.ImInt(cfg.setrank.rank_1)
+local rank_2 = imgui.ImInt(cfg.setrank.rank_2)
+local rank_3 = imgui.ImInt(cfg.setrank.rank_3)
+local rank_4 = imgui.ImInt(cfg.setrank.rank_4)
+local rank_5 = imgui.ImInt(cfg.setrank.rank_5)
+local rank_6 = imgui.ImInt(cfg.setrank.rank_6)
+local rank_7 = imgui.ImInt(cfg.setrank.rank_7)
+local rank_8 = imgui.ImInt(cfg.setrank.rank_8)
+local wait_kick = imgui.ImInt(10)
 local check_rank = imgui.ImInt(0)
-local choise_socnetwork = imgui.ImInt(mainIni.config.socnetwork)
+local choise_socnetwork = imgui.ImInt(cfg.config.socnetwork)
 local setrank = imgui.ImBuffer(2)
 local findname = imgui.ImBuffer(100)
 local uninvite = imgui.ImBuffer(150)
@@ -71,14 +101,15 @@ local settime = imgui.ImBuffer(4)
 local addname = imgui.ImBuffer(150)
 local addprich = imgui.ImBuffer(150)
 local ages = imgui.ImBool(false)
-local overlay = imgui.ImBool(mainIni.config.overlay)
-local offkick = imgui.ImBool(false)
-local fmembers = imgui.ImBool(false)
-local sw, sh = getScreenResolution()
-local user_id = imgui.ImBuffer(u8(mainIni.config.user_id), 256)
-local chat_id = imgui.ImBuffer(u8(mainIni.config.chat_id), 256)
+local overlay = imgui.ImBool(cfg.config.overlay)
 
-if not doesFileExist('moonloader/config/agesilay_notf.ini') then inicfg.save(mainIni, 'agesilay_notf.ini') end
+local fmembers = imgui.ImBool(false)
+local offmembers = imgui.ImBool(false)
+local sw, sh = getScreenResolution()
+local user_id = imgui.ImBuffer(u8(cfg.config.user_id), 256)
+local chat_id = imgui.ImBuffer(u8(cfg.config.chat_id), 256)
+
+if not doesFileExist('moonloader/config/agesilay_notf.ini') then inicfg.save(cfg, 'agesilay_notf.ini') end
 
 local server_get = function()
     local file = getWorkingDirectory() .. '\\config\\.csc';
@@ -117,6 +148,32 @@ local timer = lua_thread.create_suspended(function()
     end
 end)
 
+local offkickplayer = lua_thread.create_suspended(function()
+    while active_kickOffPlayer do wait(0)
+        local ix = activeCheckbox
+        sendMessage(1, '[Deputy Helper] {FFFF00}Внимание! {FFFFFF}Сейчас будет произведён кик игроков в оффлайне.')
+        wait(10)
+        sendMessage(1, '[Deputy Helper] {FF0000}[ ! ] {D3D3D3}Кик игроков займёт {228fff}' ..wait_kick.v * activeCheckbox.. ' {CD5C5C}cекунд!')
+        for k,v in pairs(arr_kick) do
+            if v[1] ~= nil then
+                ix = ix - 1
+                sampSendChat('/famoffkick ' ..v[1]); wait(150)
+                wait((ix > 0 and (wait_kick.v * 1000) or 1000))
+            end
+        end
+        if activeCheckbox == 1 then
+            sendMessage(1, '[Deputy Helper] {FFFFFF}Был кикнут {228FFF}'..activeCheckbox..'{FFFFFF} игрок в оффлайне.')
+        elseif activeCheckbox >= 2 and activeCheckbox < 5 then
+            sendMessage(1, '[Deputy Helper] {FFFFFF}Было кикнуто {228FFF}'..activeCheckbox..'{FFFFFF} игрока в оффлайне.')
+        elseif activeCheckbox >= 5 then
+            sendMessage(1, '[Deputy Helper] {FFFFFF}Было кикнуто {228FFF}'..activeCheckbox..'{FFFFFF} игроков в оффлайне.')
+        end
+        arr_kick = {}
+        active_kickOffPlayer = false
+        activeCheckbox = 0
+    end
+end)
+
 local processor = function()
     for k, v in pairs(tasks.list) do 
         local params = commands[v.command]
@@ -134,7 +191,7 @@ function check_update() -- Проверка обновлений
         if status == 6 then
             updateIni = inicfg.load(nil, update_path)
             if updateIni and (tonumber(updateIni.info.vers) > thisScript().version_num) then -- Сверяем версию в скрипте и в ini файле на github
-                sampAddChatMessage('[Уведомления для отчётов Agesilay] {FFFFFF}Найдена новая версия скрипта {228fff}' ..updateIni.info.vers_text..'{FFFFFF}. Скачиваю...', 0xBA55D3)
+                sendMessage(1, '[Deputy Helper] {FFFFFF}Найдена новая версия скрипта {228fff}' ..updateIni.info.vers_text..'{FFFFFF}. Скачиваю...')
                 update_state = true
             end
         end
@@ -167,7 +224,7 @@ function main()
     print('{ffffff}Скрипт {9ACD32}успешно загружен.{ffffff} Версия скрипта: {ff0000}' ..thisScript().version)
     _, id_deputy = sampGetPlayerIdByCharHandle(playerPed)
     nickname = sampGetPlayerNickname(id_deputy)
-    sampAddChatMessage('[Уведомления для отчётов Agesilay] {ffffff}Скрипт запущен и работает {808080}[v '..thisScript().version..']. {ffffff}Настройки - {800080}/deputy', 0xBA55D3)
+    sendMessage(1, '[Deputy Helper] {ffffff}Скрипт запущен и работает {808080}[v '..thisScript().version..']. {ffffff}Настройки - {800080}/deputy')
     -- // проверка даты
     if not current_day then
         current_day = os.date('%D')
@@ -176,14 +233,19 @@ function main()
 		ages.v = not ages.v
     end)
     sampRegisterChatCommand('fi', faminvite)
-    sampRegisterChatCommand("fm", function() sampSendChat("/fmembers") end)
+    sampRegisterChatCommand('fm', function() sampSendChat('/fmembers') end)
+    sampRegisterChatCommand('fmoff', function() 
+        lua_thread.create(function()
+            sampSendChat('/fammenu'); wait(100); sampSendClickTextdraw(2070); checkoffmembers = true
+        end)
+    end)
 
     if doesFileExist(update_path) then os.remove(update_path) end
     timer:run();
     while true do 
         wait(0) 
         processor()
-        imgui.Process = ages.v or overlay.v or fmembers.v; imgui.LockPlayer = ages.v or fmembers.v; imgui.ShowCursor = imgui.Process
+        imgui.Process = ages.v or overlay.v or fmembers.v or offmembers.v; imgui.LockPlayer = ages.v or fmembers.v or offmembers.v; imgui.ShowCursor = imgui.Process
         if overlay.v then imgui.ShowCursor = false end
         if sampGetGamestate() == 3 and sampIsLocalPlayerSpawned() then
             if checkvip then
@@ -213,17 +275,17 @@ function main()
             current_day = os.date('%D')
             invite = 0
             quest = 0
-            mainIni.config.current_day = current_day
-            mainIni.config.invite = invite
-            mainIni.config.quest = quest
-            inicfg.save(mainIni, 'agesilay_notf.ini')
-            sampAddChatMessage('[Уведомления для отчётов Agesilay] {ffffff}Скрипт обнулил значения инвайтов и квестов, так как начался новый день.', 0xBA55D3)
+            cfg.config.current_day = current_day
+            cfg.config.invite = invite
+            cfg.config.quest = quest
+            inicfg.save(cfg, 'agesilay_notf.ini')
+            sendMessage(1, '[Deputy Helper] {ffffff}Скрипт обнулил значения инвайтов и квестов, так как начался новый день.')
             wait(10000)
         end
         if update_state then -- Обновление скрипта.
             downloadUrlToFile(script_url, script_path, function(id, status)
                 if status == 6 then
-                    sampAddChatMessage('[Уведомления для отчётов Agesilay] {ffffff}Скрипт успешно обновлён.', 0xBA55D3)
+                    sendMessage(1, '[Deputy Helper] Скрипт успешно обновлён!')
                 end
             end)
             break
@@ -238,12 +300,12 @@ function updateBlacklist()
         if status == 6 then
             local f = io.open(update_file, 'r+')
             if f then
-                sampfuncsLog('{BA55D3}[Уведомления для отчётов Agesilay] {FFFFFF}Список ЧС {98FB98}успешно загружен')
+                sendMessage(2, '[Deputy Helper] {FFFFFF}Список ЧС {98FB98}успешно загружен')
                 local data = decodeJson(f:read('a*'))
                 blacklist = settings.load(data, update_file)
                 f:close()
             else
-                sampfuncsLog('{BA55D3}[Уведомления для отчётов Agesilay] {FFFFFF}Список ЧС {ff0000}не загружен')
+                sendMessage(2, '[Deputy Helper] {FFFFFF}Список ЧС {ff0000}не загружен')
             end
         end
     end)
@@ -273,11 +335,11 @@ function faminvite(arg)
             check_blacklist = true; fi = true
             sampSendChat('/id ' ..arg)
         else
-            sampAddChatMessage('[Уведомления для отчётов Agesilay] {ffffff}Невозможно проверить игрока, т.к. чёрный список не загружен.', 0xBA55D3)
+            sendMessage(1, '[Deputy Helper] {ffffff}Невозможно проверить игрока, т.к. чёрный список не загружен.')
             sampSendChat('/faminvite ' ..arg)
         end
     else
-        sampAddChatMessage('[Уведомления для отчётов Agesilay] {ffffff}Введите команду: {228fff}/fi [id]', 0xBA55D3)
+        sendMessage(1, '[Deputy Helper] {ffffff}Введите команду: {228fff}/fi [id]')
     end
 end
 
@@ -288,11 +350,14 @@ function sampev.onPlaySound(sound, pos)
 end
 function onWindowMessage(msg, wparam, lparam)
     if msg == 0x100 or msg == 0x101 then
-        if (wparam == keys.VK_ESCAPE and (ages.v or fmembers.v)) and not isPauseMenuActive() then
+        if (wparam == keys.VK_ESCAPE and fmembers.v  or offmembers.v) and not checkfmembers and not checkoffmembers and not isPauseMenuActive() then
             consumeWindowMessage(true, false)
             if msg == 0x101 then
-                ages.v = false; fmembers.v = false; selects = nil
+                offmembers.v = false; fmembers.v = false; selects = nil
             end
+        end
+        if (wparam == keys.VK_F8) and not stop_render then
+            lua_thread.create(function() stop_render = true; wait(1300); stop_render = false end)
         end
     end
 end
@@ -327,57 +392,88 @@ function SendMessageDeputy(message)
     end
 end
 
-function SendMessageLeader(message)
-    https.request('https://api.vk.com/method/messages.send?v=5.131&message='..encodeUrl(message).. '&user_id=189170595&access_token='..access_token..'&random_id='..math.random(-2147483648, 2147483647))
-end
-
 function sampev.onShowDialog(id, style, title, button1, button2, text)
-    --sampAddChatMessage(id .. ',  ' ..style.. ', ' ..title,-1)
-    if id == 2931 and style == 5 and title == '{BFBBBA}Участники семьи (оффлайн)' and offkick.v then
-        local count = 0
-        for v in string.gmatch(text, '[^\n]+') do
-            local nick, family, rank, days = v:match('{......}(%w+)_(%w+)\t%((%d+)%).+\t(%d+) дней')
-            if nick and family and rank and days and tonumber(days) > 3 then
-                local nick_name = nick .. '_' .. family
-                if nick_name ~= 'Viktor_Agesilay' and nick_name ~= 'Dmitry_Agesilay' and nick_name ~= 'Corrado_Uchida' and nick_name ~= 'Ezio_Agesilay' then
-                    if (family == 'Agesilay' and tonumber(rank) == 7 and tonumber(days) >= 30) or (family == 'Agesilay' and tonumber(rank) == 8 and tonumber(days) >= 45) or (tonumber(rank) >= 5 and tonumber(rank) <= 6 and tonumber(days) >= 10) or (tonumber(rank) < 5 and tonumber(days) >= 4) then
-                        lua_thread.create(function()
-                            sampAddChatMessage('[OffMembers] {ffffff}'..nick_name .. '(' ..rank.. ') время отсутствия: ' ..days.. ' дня(-ей)', 0xBA55D3)
-                            wait(1700)
-                            sampSendDialogResponse(id, 1, count, nick_name)
-                        end)
-                        break
-                    end
-                end
-            end
-            if v:find('{B0E73A}Вперед >>>') then
-                sampAddChatMessage('[OffMembers] {ffffff}Некого кикать. Перейди на следующую страницу либо останови работу функции.', 0xBA55D3)
-                break
-            end
-            count = count + 1
-        end
-    end
-    if id == 2932 and style == 0 and offkick.v then
+    if text:find('В этой семье никто не состоит или нет оффлайн игроков') then
         lua_thread.create(function()
             wait(300)
-            sampSendDialogResponse(2932, 1, 0, nil)
-            wait(1000)
-            sampCloseCurrentDialogWithButton(1)
-            offMembers()
+            sampSendDialogResponse(id, 0, 0, nil)
+            sampCloseCurrentDialogWithButton(0)
+            page_off = false
+            checkoffmembers = false
         end)
-        
     end
-    if text:find('%(ранг%) Ник') and id == 0 then
-        members = {}
+    if id == 2931 and style == 5 then
+        if imguiclose then
+            lua_thread.create(function()
+                wait(300)
+                sampSendDialogResponse(id, 0, 0, nil)
+                sampCloseCurrentDialogWithButton(0)
+            end)
+            imguiclose = false
+            return false
+        end
+        if checkoffmembers then
+            offmembers.v = true
+            if not page_off then offmembers = {} end
+            local lines = -1
+            for line in text:gmatch('[^\r\n]+') do
+                if line:find('%{FFFFFF%}([A-z_]+)%s+%((%d+)%)(.+)%s+(%d+%s.+)') then
+                    local name, rank, name_rank, day_off = line:match('%{FFFFFF%}([A-z_]+)%s+%((%d+)%)(.+)%s+(%d+%s.+)')
+                    table.insert(offmembers,{name, rank, name_rank, day_off})
+                end
+                if line:find('%{B0E73A%}Вперед %>%>%>') then
+                    lua_thread.create(function()
+                        page_off = true
+                        wait(300)
+                        sampSendDialogResponse(id, 1, lines, "Вперед >>>")
+                        lines = -1
+                    end)
+                    return false
+                else page_off = false end
+                lines = lines + 1
+            end
+            if not page_off then
+                lua_thread.create(function()
+                    wait(300)
+                    sampSendDialogResponse(id, 0, 0, nil)
+                    sampCloseCurrentDialogWithButton(0)
+                    checkoffmembers = false
+                end)
+            end
+            return false
+        end
+    end
+    if text:find('%(Ранг%) Ник') and id == 1488 and style == 5 then
+        checkfmembers = true
+        fmembers.v = true
+        online = title:match('%{......%}[A-z]+%(В сети%: (%d+)%) %| %{......%}Семья')
+        if not page then members = {} end
+        local lines = -1
         for line in text:gmatch('[^\r\n]+') do
-            if text:find('(%d+)%) (%w+.%w+)%[(%d+)%]\t(%d+)\t(%d+)') then
-                local rank, name, id, score, afk, kvest = line:match('(%d+)%) (%w+.%w+)%[(%d+)%]\t(%d+)\t(%d+)\t(%d+)')
+            if line:find('%((%d+)%)%s([A-z_]+)%((%d+)%)%s+(%d+)%s+(%d+)%/8%s+(%d+)') then
+                local rank, name, id, score, kvest, afk = line:match('%((%d+)%)%s([A-z_]+)%((%d+)%)%s+(%d+)%s+(%d+)%/8%s+(%d+)')
                 table.insert(members,{rank, name, id, score, afk, kvest})
             end
+            if line:find('%{9ACD32%}Следующая страница %{FFFFFF%}%[»%]') then
+                lua_thread.create(function()
+                    page = true
+                    wait(300)
+                    sampSendDialogResponse(id, 1, lines, line)
+                    lines = -1
+                end)
+                return false
+            else page = false end
+            lines = lines + 1
         end
         checkvip = true
-        fmembers.v = true
-        sampSendDialogResponse(id, 1, 0, nil)
+        checkfmembers = false
+        if not page then
+            lua_thread.create(function()
+                wait(300)
+                sampSendDialogResponse(id, 0, 0, nil)
+                sampCloseCurrentDialogWithButton(0)
+            end)
+        end
         return false
     end
 end
@@ -392,9 +488,9 @@ function sampev.onServerMessage(color, text)
     local vipplayer = text:match('Всего: (%d+) человек')
     if vipplayer then
         if #vipp == tonumber(vipplayer) then
-            sampfuncsLog('{BA55D3}[Уведомления для отчётов Agesilay] {FFFFFF}Информация о VIP обновлена.')
+            sendMessage(2, '[Deputy Helper] {FFFFFF}Информация о VIP обновлена.')
         else
-            sampfuncsLog('{BA55D3}[Уведомления для отчётов Agesilay] {FFFFFF}Ошибка обновления информации о VIP! '..#vipp..' ~= '..vipplayer, 0xBA55D3)
+            sendMessage(2, '[Deputy Helper] Ошибка обновления информации о VIP! '..#vipp..' ~= '..vipplayer)
         end
         vipplayer = 0
         return false
@@ -446,7 +542,7 @@ function sampev.onServerMessage(color, text)
         if (names == nickname) then
             lua_thread.create(function()
                 local my_text = text:gsub('{......}', '')
-                SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>')
+                sendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>')
                 wait(500)
                 SendMessageDeputy(my_text)
             end)
@@ -457,7 +553,7 @@ function sampev.onServerMessage(color, text)
         if (names == nickname) then
             lua_thread.create(function()
                 local my_text = text:gsub('{......}', '')
-                SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>')
+                sendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>')
                 wait(500)
                 SendMessageDeputy(my_text)
             end)
@@ -467,7 +563,7 @@ function sampev.onServerMessage(color, text)
     if text:find('%{......%}%[Семья %(Беда%)%] %w+_%w+%[%d+%]%:%{......%}Получил BAN за нарушения. Репутация семьи понижена!') then
         lua_thread.create(function()
             local my_text = text:gsub('{......}', '')
-            SendMessageLeader(my_text)
+            sendMessageLeader(my_text)
             wait(500)
             SendMessageDeputy(my_text)
         end) 
@@ -478,9 +574,9 @@ function sampev.onServerMessage(color, text)
             lua_thread.create(function()
                 local my_text = text:gsub('{......}', '')
                 invite = invite + 1
-                mainIni.config.invite = invite
-                inicfg.save(mainIni, 'agesilay_notf.ini')
-                SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>. Принял: ' ..invite.. ' человек.')
+                cfg.config.invite = invite
+                inicfg.save(cfg, 'agesilay_notf.ini')
+                sendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>. Принял: ' ..invite.. ' человек.')
                 wait(500)
                 SendMessageDeputy(my_text)        
             end)
@@ -492,9 +588,9 @@ function sampev.onServerMessage(color, text)
             lua_thread.create(function()
                 local my_text = text:gsub('{......}', '')
                 quest = quest + 1
-                mainIni.config.quest = quest
-                inicfg.save(mainIni, 'agesilay_notf.ini')
-                SendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>. Выполнил квестов: ' ..quest.. '.')
+                cfg.config.quest = quest
+                inicfg.save(cfg, 'agesilay_notf.ini')
+                sendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>. Выполнил квестов: ' ..quest.. '.')
                 wait(500)
                 SendMessageDeputy(my_text)
             end)
@@ -502,25 +598,25 @@ function sampev.onServerMessage(color, text)
     end
 
     if text:find('%[Family War%] Член семьи %w+_%w+ загрузился на территории №%d+. Семейные монеты%: %d+шт, деньги%: %$[%d+.]+') then
-        SendMessageLeader('[Сообщение от '..nickname..'('..id_deputy..')]\n' ..text)
+        sendMessageLeader(text)
     end
 
     if text:find('%[Family%] Член семьи %w+_%w+ сделал объезд территорий и привёз на склад семейные монеты%(%d+шт%) и деньги: %$[%d+.]+') then
-        SendMessageLeader('[Сообщение от '..nickname..'('..id_deputy..')]\n' ..text)
+        sendMessageLeader(text)
     end
 
     if text:find('%{......%}%[Семья %(Новости%)%] %w+_%w+%[%d+%]%:%{......%} взял семейные монеты%(%d+шт%) со склада семьи') then
         local name, id, monet = text:match('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} взял семейные монеты%((%d+)шт%) со склада семьи')
-        SendMessageLeader('[Сообщение от '..nickname..'('..id_deputy..')]\n[Семья (Новости)] ' ..name.. '[' ..id.. ']: взял семейные монеты (' ..monet.. ' шт.) со склада семьи!')
+        sendMessageLeader('[Семья (Новости)] ' ..name.. '[' ..id.. ']: взял семейные монеты (' ..monet.. ' шт.) со склада семьи!')
     end
 
     if text:find('%{......%}%[Семья %(Новости%)%] %w+_%w+%[%d+%]:%{......%} пополнил склад семьи семейныи монетами%(%d+шт%)') then
         local my_text = text:gsub('{......}', '')
-        SendMessageLeader('[Сообщение от '..nickname..'('..id_deputy..')]\n' .. my_text)
+        sendMessageLeader(my_text)
     end
 
     if text:find('%[Family Cars%] Фургон вашей семьи был взорван и сейчас идёт ограбление! %(виновник%: %w+_%w+%)') then
-        SendMessageLeader('[Сообщение от '..nickname..'('..id_deputy..')]\n' ..text)
+        sendMessageLeader(text)
     end
 
     -- -- arguments
@@ -594,22 +690,22 @@ function imgui.OnDrawFrame()
 
         imgui.Text(u8'Куда присылать уведомления?')
         if imgui.RadioButton(u8'ВКонтакте',choise_socnetwork, 1) then
-            mainIni.config.socnetwork = choise_socnetwork.v
-            inicfg.save(mainIni, 'agesilay_notf.ini')
+            cfg.config.socnetwork = choise_socnetwork.v
+            inicfg.save(cfg, 'agesilay_notf.ini')
         end
         imgui.SameLine()
         if imgui.RadioButton(u8'Telegram',choise_socnetwork, 2) then
-            mainIni.config.socnetwork = choise_socnetwork.v
-            inicfg.save(mainIni, 'agesilay_notf.ini')
+            cfg.config.socnetwork = choise_socnetwork.v
+            inicfg.save(cfg, 'agesilay_notf.ini')
         end
         imgui.PushItemWidth(200)
         if imgui.InputText(u8(choise_socnetwork.v == 1 and 'Введите VK ID' or 'Введите Chat ID'), (choise_socnetwork.v == 1 and user_id or chat_id)) then
             if choise_socnetwork.v == 1 then 
-                mainIni.config.user_id = user_id.v
+                cfg.config.user_id = user_id.v
             else
-                mainIni.config.chat_id = chat_id.v
+                cfg.config.chat_id = chat_id.v
             end
-            inicfg.save(mainIni, 'agesilay_notf.ini') 
+            inicfg.save(cfg, 'agesilay_notf.ini') 
         end
         imgui.Separator()
         
@@ -624,7 +720,8 @@ function imgui.OnDrawFrame()
                 sampAddChatMessage('[Тестовое сообщение]: {ffffff}' ..testmessage, 0x228fff)
             end
             lua_thread.create(function()
-                SendMessageLeader(testmessage.. '\n<' ..thisScript().version.. '> Принял: ' ..invite.. ' человек, квесты: ' ..quest.. '.')
+                tmsg = true
+                sendMessageLeader(testmessage.. '\n<' ..thisScript().version.. '> Принял: ' ..invite.. ' человек, квесты: ' ..quest.. '.')
                 wait(500)
                 SendMessageDeputy(testmessage)
             end)
@@ -632,7 +729,7 @@ function imgui.OnDrawFrame()
         imgui.SameLine()
         if imgui.Button(u8'Перезапустить') then imgui.Process = false; thisScript():reload() end
         imgui.Separator()
-        if imgui.Checkbox(u8'Оверлей (статистика в отдельном окне)', overlay) then mainIni.config.overlay = overlay.v; inicfg.save(mainIni, 'agesilay_notf.ini') end
+        if imgui.Checkbox(u8'Оверлей (статистика в отдельном окне)', overlay) then cfg.config.overlay = overlay.v; inicfg.save(cfg, 'agesilay_notf.ini') end
         imgui.Separator()
         imgui.CenterTextColoredRGB('{228fff}Статистика за сегодня {ffffff}| {FFFF00}' ..os.date('%d/%m/%Y'))
         imgui.BeginChild('##members', imgui.ImVec2(295, 45), true, imgui.WindowFlags.NoScrollbar)
@@ -646,24 +743,20 @@ function imgui.OnDrawFrame()
             current_day = os.date('%D')
             invite = 0
             quest = 0
-            mainIni.config.current_day = current_day
-            mainIni.config.invite = invite
-            mainIni.config.quest = quest
-            inicfg.save(mainIni, 'agesilay_notf.ini')
-            sampAddChatMessage('[Уведомления для отчётов Agesilay] {ffffff}Статистика успешно сброшена.', 0xBA55D3)
+            cfg.config.current_day = current_day
+            cfg.config.invite = invite
+            cfg.config.quest = quest
+            inicfg.save(cfg, 'agesilay_notf.ini')
+            sendMessage(1, '[Deputy Helper] {ffffff}Статистика успешно сброшена.')
         end
         imgui.SameLine()
-        if imgui.Checkbox(u8'Kick players in OffMembers', offkick) then
-            if offkick.v then
-                offMembers()
-            end
-        end
+
         imgui.End()
     end
 
     if (overlay.v) then
-        if ages.v or fmembers.v then imgui.ShowCursor = true end
-        imgui.SetNextWindowPos(imgui.ImVec2((mainIni.config.overlay_pos_x),(mainIni.config.overlay_pos_y)), imgui.Cond.FirstUseEver)
+        if ages.v or fmembers.v or offmembers.v then imgui.ShowCursor = true end
+        imgui.SetNextWindowPos(imgui.ImVec2((cfg.config.overlay_pos_x),(cfg.config.overlay_pos_y)), imgui.Cond.FirstUseEver)
         imgui.Begin('##begin_overlay', overlay, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.AlwaysAutoResize)
 
         imgui.TextColoredRGB('{ca03fc}Статистика за сегодня:')
@@ -673,17 +766,17 @@ function imgui.OnDrawFrame()
         imgui.SetCursorPosX(35)
         imgui.TextColoredRGB('{ffffff}Задания - {098aed}' ..quest.. '/8')
 
-        if mainIni.config.overlay_pos_x ~= imgui.GetWindowPos().x or mainIni.config.overlay_pos_y ~= imgui.GetWindowPos().y then
+        if cfg.config.overlay_pos_x ~= imgui.GetWindowPos().x or cfg.config.overlay_pos_y ~= imgui.GetWindowPos().y then
             imgui.Separator()
             
             if imgui.Button(u8'Сохранить положение', imgui.ImVec2(135,20)) then 
-                mainIni.config.overlay_pos_x = imgui.GetWindowPos().x
-                mainIni.config.overlay_pos_y = imgui.GetWindowPos().y
-                inicfg.save(mainIni, 'agesilay_notf.ini')
+                cfg.config.overlay_pos_x = imgui.GetWindowPos().x
+                cfg.config.overlay_pos_y = imgui.GetWindowPos().y
+                inicfg.save(cfg, 'agesilay_notf.ini')
                 
             end
             if imgui.Button(u8'Вернуть обратно', imgui.ImVec2(135,20)) then 
-                imgui.SetWindowPos(imgui.ImVec2(mainIni.config.overlay_pos_x, mainIni.config.overlay_pos_y))
+                imgui.SetWindowPos(imgui.ImVec2(cfg.config.overlay_pos_x, cfg.config.overlay_pos_y))
                 
             end
         end
@@ -696,7 +789,7 @@ function imgui.OnDrawFrame()
         imgui.SetNextWindowPos(imgui.ImVec2(ScreenX / 2 , ScreenY / 2), imgui.Cond.FirsUseEver, imgui.ImVec2(0.5, 0.5))
         imgui.Begin('##begin_fmembers', fmembers,  imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoBringToFrontOnFocus + imgui.WindowFlags.NoSavedSettings + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.AlwaysAutoResize)
         imgui.Spacing()
-        imgui.CenterTextColoredRGB('Онлайн семьи: {FFFF00}'.. #members - 1) 
+        imgui.CenterTextColoredRGB('Онлайн семьи: ' ..(checkfmembers and '{FF0000}' or '{FFFF00}').. online)
         imgui.CenterTextColoredRGB('Игроков с VIP | без VIP аккаунта: {00FF00}' .. vip .. ' {ffffff}| {FF0000}' ..novip)
         imgui.Spacing()
         imgui.BeginChild('##members', imgui.ImVec2(415, 260), true, imgui.WindowFlags.NoScrollbar)
@@ -781,7 +874,7 @@ function imgui.OnDrawFrame()
                 end
                 if imgui.Button(u8'Скопировать ник',imgui.ImVec2(190,20)) then
                     setClipboardText(vzName) 
-                    sampAddChatMessage('[Уведомления для отчётов Agesilay] {FFFFFF}Ник игрока {228fff}'.. vzName ..'['..vzID..']{ffffff} скопирован в буфер обмена.', 0xBA55D3)
+                    sendMessage(1, '[Deputy Helper] {FFFFFF}Ник игрока {228fff}'.. vzName ..'['..vzID..']{ffffff} скопирован в буфер обмена.')
                     addOneOffSound(0.0, 0.0, 0.0, 1054)
                 end
 
@@ -856,7 +949,7 @@ function imgui.OnDrawFrame()
                             settime.v = ''
                             imgui.CloseCurrentPopup()
                         else
-                            sampAddChatMessage('[Уведомления для отчётов Agesilay] {FFFFFF}Заполните все поля или закройте выдачу мута!', 0xBA55D3)
+                            sendMessage(1, '[Deputy Helper] {FFFFFF}Заполните все поля или закройте выдачу мута!')
                         end
                     end
                     imgui.SameLine()
@@ -868,7 +961,7 @@ function imgui.OnDrawFrame()
                             settime.v = ''
                             imgui.CloseCurrentPopup()
                         else
-                            sampAddChatMessage('[Уведомления для отчётов Agesilay] {FFFFFF}Заполните все поля или закройте выдачу мута!', 0xBA55D3)
+                            sendMessage(1, '[Deputy Helper] {FFFFFF}Заполните все поля или закройте выдачу мута!')
                         end
                     end
                     imgui.NewLine()
@@ -879,7 +972,7 @@ function imgui.OnDrawFrame()
                             settime.v = ''
                             imgui.CloseCurrentPopup()
                         else
-                            sampAddChatMessage('[Уведомления для отчётов Agesilay] {FFFFFF}Заполните все поля или закройте выдачу мута!', 0xBA55D3)
+                            sendMessage(1, '[Deputy Helper] {FFFFFF}Заполните все поля или закройте выдачу мута!')
                         end
                     end
                     if imgui.Button(u8'Отмена',imgui.ImVec2(300,25)) then
@@ -900,7 +993,7 @@ function imgui.OnDrawFrame()
                             selects = nil
                             imgui.CloseCurrentPopup()
                         else
-                            sampAddChatMessage('[Уведомления для отчётов Agesilay] {FFFFFF}Введите причину увольнения!', 0xBA55D3)
+                            sendMessage(1, '[Deputy Helper] {FFFFFF}Введите причину увольнения!')
                         end
                     end
                     imgui.NewLine()
@@ -912,7 +1005,7 @@ function imgui.OnDrawFrame()
                             selects = nil
                             imgui.CloseCurrentPopup()
                         else
-                            sampAddChatMessage('[Уведомления для отчётов Agesilay] {FFFFFF}Введите причину увольнения!', 0xBA55D3)
+                            sendMessage(1, '[Deputy Helper] {FFFFFF}Введите причину увольнения!')
                         end
                     end
                     if imgui.Button(u8'Отмена',imgui.ImVec2(300,25)) then
@@ -958,13 +1051,13 @@ function imgui.OnDrawFrame()
                         break
                     end
                 else 
-                    sampAddChatMessage('[Уведомления для отчётов Agesilay] {ffffff}Некорректно введены данные. Пример: {228fff}Dmitry_Agesilay{ffffff} или {228fff}228', 0xBA55D3)
+                    sendMessage(1, '[Deputy Helper] {ffffff}Некорректно введены данные. Пример: {228fff}Dmitry_Agesilay{ffffff} или {228fff}228')
                     find = true
                     break
                 end
             end
             if not find then
-                sampAddChatMessage('[Уведомления для отчётов Agesilay] {ffffff}Игрок не находится в семье или он оффлайн.', 0xBA55D3)
+                sendMessage(1, '[Deputy Helper] {ffffff}Игрок не находится в семье или он оффлайн.')
             end
             findname.v = ''
         end
@@ -974,10 +1067,10 @@ function imgui.OnDrawFrame()
                 selects = nil
                 sampSendChat('/fmembers')
                 check_time = os.time() + 3
-                sampAddChatMessage('[Уведомления для отчётов Agesilay] {FFFFFF}Информация в таблице обновлена!', 0xBA55D3)
+                sendMessage(1, '[Deputy Helper] {ffffff}Информация в таблице обновлена!')
             else
                 cooldown = check_time - os.time()
-                sampAddChatMessage('[Уведомления для отчётов Agesilay] {FFFFFF}Не так быстро, спортсмен! Повтори попытку через {228fff}'..cooldown..'{ffffff} секунд.', 0xBA55D3)
+                sendMessage(1, '[Deputy Helper] {ffffff}Не так быстро, спортсмен! Повтори попытку через {228fff}'..cooldown..'{ffffff} секунд.')
             end
         end
         imgui.SameLine()
@@ -986,11 +1079,163 @@ function imgui.OnDrawFrame()
         end
         imgui.End()
     end
+    if (offmembers.v) then
+        imgui.SetNextWindowPos(imgui.ImVec2(sw / 2 , sh / 2), imgui.Cond.FirsUseEver, imgui.ImVec2(0.5, 0.5))
+        imgui.Begin('##begin_fmembers', offmembers,  imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoBringToFrontOnFocus + imgui.WindowFlags.NoSavedSettings + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.AlwaysAutoResize)
+        imgui.Spacing()
+        imgui.CenterTextColoredRGB((checkoffmembers and '{FF0000}' or '{D3D3D3}') .. 'Члены семьи (оффлайн)')
+        imgui.Spacing()
+        imgui.BeginChild('##offmembers', imgui.ImVec2(455, 260), true)
+            imgui.Columns(4, nil, false)
+            imgui.SetColumnWidth(-1, 160); imgui.TextColoredRGB('{228fff}Никнейм[ID]'); imgui.NextColumn()
+            imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}Ранг'); imgui.NextColumn()
+            imgui.SetColumnWidth(-1, 140); imgui.TextColoredRGB('{228fff}Название ранга'); imgui.NextColumn()
+            imgui.SetColumnWidth(-1, 110); imgui.TextColoredRGB('{228fff}Последний вход'); imgui.NextColumn(); imgui.Separator()
+            local all_offPlayer = 0
+            for k, v in ipairs(offmembers) do
+                if v[2] ~= nil then
+                    if imgui.Checkbox('##' ..k, imbool[k]) then
+                        if imbool[k].v then
+                            arr_kick[k] = v
+                            activeCheckbox = activeCheckbox + 1
+                        else
+                            arr_kick[k] = nil
+                            activeCheckbox = activeCheckbox - 1
+                        end
+                    end
+                    local clrText = '{90EE90}'
+                    local day = v[4]:match('(%d+) дней')
+                    local numrank = v[2]
+                    if day then
+                        if v[1] ~= 'Viktor_Agesilay' and v[1] ~= 'Dmitry_Agesilay' and v[1] ~= 'Corrado_Uchida' and v[1] ~= 'Ezio_Agesilay' then
+                            for i = 1,8 do
+                                local number_day = tonumber(day)
+                                for k,v in pairs(cfg.setrank) do
+                                    if k:find('rank_' ..i) then
+                                        number_cfg_rank = tonumber(v)
+                                        break
+                                    end
+                                end
+                                if tonumber(numrank) == tonumber(i) then
+                                    if number_cfg_rank ~= 0 and (number_day >= number_cfg_rank) then
+                                        all_offPlayer = all_offPlayer + 1
+                                        clrText = '{FF0000}'
+                                    end
+                                end
+                            end
+                        end
+                    end
+                    imgui.SameLine(); imgui.TextColoredRGB(clrText ..v[1])
+                    imgui.NextColumn()
+                    imgui.TextColoredRGB(clrText ..v[2]); imgui.NextColumn()
+                    imgui.TextColoredRGB(clrText ..v[3]); imgui.NextColumn()
+                    imgui.TextColoredRGB(clrText ..v[4]); imgui.NextColumn()
+                end
+            end
+        imgui.EndChild()
+        imgui.SameLine()
+        imgui.BeginChild('##settingoff', imgui.ImVec2(200, 260), true)
+            imgui.CenterTextColoredRGB('{228FFF}Настройки'); imgui.Separator(); imgui.Spacing()
+            imgui.AlignTextToFramePadding(); imgui.Text(u8'1 ранг'); imgui.SameLine(); imgui.PushItemWidth(100)
+            if imgui.SliderInt(u8('дней') .. '##rank_1', rank_1, 0, 60) then cfg.setrank.rank_1 = rank_1.v; inicfg.save(cfg, 'fam_helper.ini') end
+            imgui.AlignTextToFramePadding(); imgui.Text(u8'2 ранг'); imgui.SameLine(); 
+            if imgui.SliderInt(u8('дней') .. '##rank_2', rank_2, 0, 60) then cfg.setrank.rank_2 = rank_2.v; inicfg.save(cfg, 'fam_helper.ini') end
+            imgui.AlignTextToFramePadding(); imgui.Text(u8'3 ранг'); imgui.SameLine(); 
+            if imgui.SliderInt(u8('дней') .. '##rank_3', rank_3, 0, 60) then cfg.setrank.rank_3 = rank_3.v; inicfg.save(cfg, 'fam_helper.ini') end
+            imgui.AlignTextToFramePadding(); imgui.Text(u8'4 ранг'); imgui.SameLine(); 
+            if imgui.SliderInt(u8('дней') .. '##rank_4', rank_4, 0, 60) then cfg.setrank.rank_4 = rank_4.v; inicfg.save(cfg, 'fam_helper.ini') end
+            imgui.AlignTextToFramePadding(); imgui.Text(u8'5 ранг'); imgui.SameLine(); 
+            if imgui.SliderInt(u8('дней') .. '##rank_5', rank_5, 0, 60) then cfg.setrank.rank_5 = rank_5.v; inicfg.save(cfg, 'fam_helper.ini') end
+            imgui.AlignTextToFramePadding(); imgui.Text(u8'6 ранг'); imgui.SameLine(); 
+            if imgui.SliderInt(u8('дней') .. '##rank_6', rank_6, 0, 60) then cfg.setrank.rank_6 = rank_6.v; inicfg.save(cfg, 'fam_helper.ini') end
+            imgui.AlignTextToFramePadding(); imgui.Text(u8'7 ранг'); imgui.SameLine(); 
+            if imgui.SliderInt(u8('дней') .. '##rank_7', rank_7, 0, 60) then cfg.setrank.rank_7 = rank_7.v; inicfg.save(cfg, 'fam_helper.ini') end
+            imgui.AlignTextToFramePadding(); imgui.Text(u8'8 ранг'); imgui.SameLine(); 
+            if imgui.SliderInt(u8('дней') .. '##rank_8', rank_8, 0, 60) then cfg.setrank.rank_8 = rank_8.v; inicfg.save(cfg, 'fam_helper.ini') end
+            imgui.Separator(); imgui.Spacing(); imgui.CenterTextColoredRGB((all_offPlayer ~= 0 and '{D3D3D3}Можно кикнуть {FFFF00}' ..all_offPlayer.. '{D3D3D3} игроков' or '{228B22}Никого кикать не нужно'))
+        imgui.EndChild()
+        imgui.Spacing()
+        if imgui.Button(u8'Кикнуть (' ..activeCheckbox..')', imgui.ImVec2(112.5,20)) then
+            if not checkoffmembers then
+                if activeCheckbox > 0 then
+                    imgui.OpenPopup(u8'Кикнуть')
+                else
+                    sendMessage(1, '[Deputy Helper] {FF0000}Ошибка! {FFFFFF}Отметьте в списке людей, которых необходимо кикнуть!')
+                end
+            else
+                sendMessage(1, '[Deputy Helper] {FF0000}Ошибка! {FFFFFF}Невозможно выполнить это действие, пока обновляется список!')
+            end
+        end
+        imgui.SameLine()
+        imgui.PushItemWidth(120)
+        imgui.Text(u8'Задержка (сек.)'); imgui.SameLine()
+        imgui.SliderInt('##wait_kick', wait_kick, 10, 20); imgui.SameLine()
+        if imgui.Button(u8'Обновить', imgui.ImVec2(113,20)) then
+            if not checkoffmembers then
+                lua_thread.create(function()
+                    sampSendChat('/fammenu'); wait(100); sampSendClickTextdraw(2070); checkoffmembers = true
+                end)
+            else
+                sendMessage(1, '[Deputy Helper] {FF0000}Ошибка! {FFFFFF}Невозможно выполнить это действие, пока обновляется список!')
+            end
+        end
+        imgui.SameLine()
+        if imgui.Button(u8'Закрыть', imgui.ImVec2(200,20)) then
+            imguiclose = true
+            checkoffmembers = false
+            offmembers.v = false
+        end
+        imgui.Spacing()
 
+        if imgui.BeginPopupModal(u8'Кикнуть' , _, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar +  imgui.WindowFlags.AlwaysAutoResize) then
+            imgui.CenterTextColoredRGB('{FF0000}Внимание!')
+            imgui.CenterTextColoredRGB('Вы собираетесь кикнуть следующих игроков:')
+            imgui.BeginChild('##offmembers1', imgui.ImVec2(405, 260), true)
+                imgui.Columns(4, nil, false)
+                imgui.SetColumnWidth(-1, 130); imgui.TextColoredRGB('{228fff}Никнейм[ID]'); imgui.NextColumn()
+                imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}Ранг'); imgui.NextColumn()
+                imgui.SetColumnWidth(-1, 120); imgui.TextColoredRGB('{228fff}Название ранга'); imgui.NextColumn()
+                imgui.SetColumnWidth(-1, 110); imgui.TextColoredRGB('{228fff}Последний вход'); imgui.NextColumn(); imgui.Separator()
+                for k,v in pairs(arr_kick) do
+                    if v[1] ~= nil then
+                        imgui.TextColoredRGB(v[1]); imgui.NextColumn()
+                        imgui.TextColoredRGB(v[2]); imgui.NextColumn()
+                        imgui.TextColoredRGB(v[3]); imgui.NextColumn()
+                        imgui.TextColoredRGB(v[4]); imgui.NextColumn(); imgui.Separator()
+                    end
+                end
+            imgui.EndChild()
+            if imgui.Button(u8'Продолжить', imgui.ImVec2(200,30)) then
+                offmembers.v = false
+                for i = 1,500 do
+                    imbool[i] = imgui.ImBool(false)
+                end
+                active_kickOffPlayer = true
+                offkickplayer:run()
+                imgui.CloseCurrentPopup()
+            end
+            imgui.SameLine()
+            if imgui.Button(u8'Отмена', imgui.ImVec2(200,30)) then
+                for i = 1,500 do
+                    imbool[i] = imgui.ImBool(false)
+                end
+                arr_kick = {}
+                activeCheckbox = 0
+                imgui.CloseCurrentPopup()
+            end
+            imgui.EndPopup()
+        end
+
+        imgui.End()
+    end
 end
 
-function offMembers()
-    sampSendChat('/fammenu'); sampSendClickTextdraw(2070)
+function sendMessage(mode, msg)
+    if mode == 1 then
+        sampAddChatMessage(msg, 0xBA55D3)
+    else
+        sampfuncsLog('{BA55D3}[' ..os.date('%H:%M:%S').. '] {FFFFFF}' .. msg)
+    end
 end
 
 function imgui.CenterTextColoredRGB(text)
@@ -1186,6 +1431,92 @@ function checkServer(ip)
 		end
 	end
 	return false
+end
+
+-- // FUNCTION FROM VK_REQUEST BY ANIKI //
+function threadHandle(runner, url, args, resolve, reject) -- обработка effil потока без блокировок
+	local t = runner(url, args)
+	local r = t:get(0)
+	while not r do
+		r = t:get(0)
+		wait(0)
+	end
+	local status = t:status()
+	if status == 'completed' then
+		local ok, result = r[1], r[2]
+		if ok then resolve(result) else reject(result) end
+	elseif err then
+		reject(err)
+	elseif status == 'canceled' then
+		reject(status)
+	end
+	t:cancel(0)
+end
+
+function requestRunner() -- создание effil потока с функцией https запроса
+	return effil.thread(function(u, a)
+		local https = require 'ssl.https'
+		local ok, result = pcall(https.request, u, a)
+		if ok then
+			return {true, result}
+		else
+			return {false, result}
+		end
+	end)
+end
+
+function async_http_request(url, args, resolve, reject)
+	local runner = requestRunner()
+	if not reject then reject = function() end end
+	lua_thread.create(function()
+		threadHandle(runner, url, args, resolve, reject)
+	end)
+end
+
+function char_to_hex(str)
+	return string.format("%%%02X", string.byte(str))
+end
+
+function url_encode(str)
+	if tg then
+		local str = str:gsub(' ', '%+')	
+		local str = str:gsub('\n', '%%0A')
+		return str
+	else
+		local str = string.gsub(str, "\\", "\\")
+		local str = string.gsub(str, "([^%w])", char_to_hex)
+		return str
+	end
+end
+
+math.randomseed(os.time())
+
+function sendMessageLeader(msg)
+	local pID = select(2, sampGetPlayerIdByCharHandle(playerPed))
+    local name = sampGetPlayerNickname(pID)
+	msg = msg:gsub('{......}', '')
+	msg = '[Сообщение от ' ..name.. '(' ..pID..')]:\n' ..msg
+	msg = u8(msg)
+	msg = url_encode(msg)
+	local rnd = math.random(-2147483648, 2147483647)
+    async_http_request('https://api.vk.com/method/messages.send', 'peer_id=189170595&random_id=' .. rnd .. '&message=' .. msg .. '&access_token=' .. access_token .. '&v=5.131',
+    function (result)
+        if tmsg then
+            sendMessage(1, '[Deputy Helper] {FFFFFF}Тестовое сообщение успешно отправлено лидеру.')
+            tmsg = false
+            return
+        end
+        local t = decodeJson(result)
+        if not t then
+            print(result)
+            return
+        end
+        if t.error then
+            print(result)
+            sendMessage(1, '[Deputy Helper] {FF0000}Ошибка! {ffffff}Код: {228fff}' .. t.error.error_code .. ' {ffffff}Причина: {228fff}' .. t.error.error_msg)
+            return
+        end
+    end)
 end
 
 function apply_custom_style()
