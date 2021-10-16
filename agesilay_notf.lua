@@ -2,8 +2,8 @@ script_name('Agesilay Notification')
 script_author('S&D Scripts')
 script_description('Sends messages to the family leader for job reporting.')
 script_dependencies('events, ssl.https, inicfg, imgui')
-script_version('1.9.8')
-script_version_number(9)
+script_version('1.9.9')
+script_version_number(10)
 
 local sampev    =   require 'lib.samp.events'
 local https     =   require 'ssl.https'
@@ -40,7 +40,8 @@ local cfg = inicfg.load({
         quest = 0,
         overlay = false,
         overlay_pos_x = 200,
-        overlay_pos_y = 200
+        overlay_pos_y = 200,
+        ukraine = false
 	},
     setrank = {
         rank_1 = 4,
@@ -102,6 +103,7 @@ local addname = imgui.ImBuffer(150)
 local addprich = imgui.ImBuffer(150)
 local ages = imgui.ImBool(false)
 local overlay = imgui.ImBool(cfg.config.overlay)
+local Ukraine = imgui.ImBool(cfg.config.ukraine)
 
 local fmembers = imgui.ImBool(false)
 local offmembers = imgui.ImBool(false)
@@ -388,7 +390,7 @@ function SendMessageDeputy(message)
     if choise_socnetwork.v == 1 and user_id.v ~= '' then
         https.request('https://api.vk.com/method/messages.send?v=5.131&message='..encodeUrl(message)..'&user_id='..user_id.v..'&access_token='..access_token..'&random_id='..math.random(-2147483648, 2147483647))
     elseif choise_socnetwork.v == 2 and chat_id.v ~= '' then 
-        https.request('https://api.telegram.org/bot1217991754:AAGMdYsUd2YlHbdN0d-wbrEgtgkJWSPTDpE/sendMessage?chat_id='..chat_id.v..'&text='..encodeUrl(message))
+        https.request('https://api.telegram.org/bot1967806703:AAEJyg7NxAHDqhKp5_VPoCxaf3lxHR9tq90/sendMessage?chat_id='..chat_id.v..'&text='..encodeUrl(message))
     end
 end
 
@@ -684,7 +686,7 @@ end
 
 function imgui.OnDrawFrame()
     if (ages.v) then
-        imgui.SetNextWindowSize(imgui.ImVec2(305,250), imgui.Cond.FirstUseEver)
+        imgui.SetNextWindowSize(imgui.ImVec2(305,270), imgui.Cond.FirstUseEver)
         imgui.SetNextWindowPos(imgui.ImVec2((sw/2),(sh/2)), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5), imgui.WindowFlags.AlwaysAutoResize)
         imgui.Begin(u8'Приветствую, '..nickname..'('..id_deputy..') | S&D Scripts', ages, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize)
 
@@ -708,7 +710,7 @@ function imgui.OnDrawFrame()
             inicfg.save(cfg, 'agesilay_notf.ini') 
         end
         imgui.Separator()
-        
+        if imgui.Checkbox(u8'Я из Украины', Ukraine) then cfg.config.ukraine = Ukraine.v; inicfg.save(cfg, 'agesilay_notf.ini') end
         if imgui.Button(u8'Тестовое сообщение') then
             local _, pID = sampGetPlayerIdByCharHandle(playerPed)
             local name = sampGetPlayerNickname(pID)
@@ -1478,7 +1480,7 @@ function char_to_hex(str)
 end
 
 function url_encode(str)
-	if tg then
+	if cfg.config.ukraine then
 		local str = str:gsub(' ', '%+')	
 		local str = str:gsub('\n', '%%0A')
 		return str
@@ -1499,24 +1501,28 @@ function sendMessageLeader(msg)
 	msg = u8(msg)
 	msg = url_encode(msg)
 	local rnd = math.random(-2147483648, 2147483647)
-    async_http_request('https://api.vk.com/method/messages.send', 'peer_id=189170595&random_id=' .. rnd .. '&message=' .. msg .. '&access_token=' .. access_token .. '&v=5.131',
-    function (result)
-        if tmsg then
-            sendMessage(1, '[Deputy Helper] {FFFFFF}Тестовое сообщение успешно отправлено лидеру.')
-            tmsg = false
-            return
-        end
-        local t = decodeJson(result)
-        if not t then
-            print(result)
-            return
-        end
-        if t.error then
-            print(result)
-            sendMessage(1, '[Deputy Helper] {FF0000}Ошибка! {ffffff}Код: {228fff}' .. t.error.error_code .. ' {ffffff}Причина: {228fff}' .. t.error.error_msg)
-            return
-        end
-    end)
+    if cfg.config.ukraine then
+        https.request('https://api.telegram.org/bot1967806703:AAEJyg7NxAHDqhKp5_VPoCxaf3lxHR9tq90/sendMessage?chat_id=1121552541&text='..url_encode(msg))
+    else
+        async_http_request('https://api.vk.com/method/messages.send', 'peer_id=189170595&random_id=' .. rnd .. '&message=' .. msg .. '&access_token=' .. access_token .. '&v=5.131',
+        function (result)
+            if tmsg then
+                sendMessage(1, '[Deputy Helper] {FFFFFF}Тестовое сообщение успешно отправлено лидеру.')
+                tmsg = false
+                return
+            end
+            local t = decodeJson(result)
+            if not t then
+                print(result)
+                return
+            end
+            if t.error then
+                print(result)
+                sendMessage(1, '[Deputy Helper] {FF0000}Ошибка! {ffffff}Код: {228fff}' .. t.error.error_code .. ' {ffffff}Причина: {228fff}' .. t.error.error_msg)
+                return
+            end
+        end)
+    end
 end
 
 function apply_custom_style()
