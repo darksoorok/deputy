@@ -1,47 +1,45 @@
 script_name('Agesilay Notification')
 script_author('S&D Scripts')
 script_description('Sends messages to the family leader for job reporting.')
-script_dependencies('events, ssl.https, inicfg, imgui')
-script_version('1.9.9')
-script_version_number(10)
+script_dependencies('events, ssl.https, inicfg, imgui, memory, vkeys, fAwesome5, effil')
+script_version('2.0')
+script_version_number(11)
 
 local sampev    =   require 'lib.samp.events'
 local https     =   require 'ssl.https'
-local effil     =   require 'effil'
 local encoding  =   require 'encoding'
 local imgui     =   require 'imgui'
 local inicfg    =   require 'inicfg'
 local keys      =   require 'vkeys'
 local memory    =   require 'memory'
+
+local l_fa, fa       = pcall(require, 'fAwesome5')
+local l_effil, effil = pcall(require, 'effil')
+
 require 'lib.moonloader'
 encoding.default = 'CP1251'
 u8 = encoding.UTF8
 
-local refresh_time = 0
-local tasks = {
-    delay = 3,
-    list = {}
-}
-
-local commands = {
-    ['setfrank'] = '(id) (rank)',
-    ['fammute'] = '(id) (min) (reason)',
-    ['famunmute'] = '(id)',
-    ['famuninvite'] = '(id) (reason)'
-}
-
 local cfg = inicfg.load({
 	config = {
+        cmd = 'deputy',
         socnetwork = 1,
         chat_id = '',
         user_id = '',
+        text_invite = 'Welcome',
+        leader_vk_id = 189170595,
+        leader_tg_id = 1121552541,
+        token_vk = '15c68b42cbf7c09a141c924adafbc7da0e5b85544c09d2827cf03d80fb8830aed43118e0dbeab212483cc',
+        token_tg = '1967806703:AAFJx1ueWWixrhN9nxUEGvz_I5LsiZKS1e4',
         current_day = os.date('%D'),
         invite = 0,
         quest = 0,
         overlay = false,
         overlay_pos_x = 200,
         overlay_pos_y = 200,
-        ukraine = false
+        ukraine = false,
+        colorFAMchat = 1190680180,
+        colorALchat = 1186513337
 	},
     setrank = {
         rank_1 = 4,
@@ -55,15 +53,18 @@ local cfg = inicfg.load({
     }
 }, 'agesilay_notf.ini')
 
-local access_token = '15c68b42cbf7c09a141c924adafbc7da0e5b85544c09d2827cf03d80fb8830aed43118e0dbeab212483cc'
+local cursorEnabled = true
+local cmd = imgui.ImBuffer(u8(cfg.config.cmd), 256)
 local settings = {}
 local invite = cfg.config.invite
 local quest = cfg.config.quest
 local current_day = cfg.config.current_day
 local checkvip = true
+local famchat = {}
 local members = {}
 local offmembers = {}
 local check_time = os.time()
+local premium = {}
 local vipp = {}
 local vzID = 0
 local imbool = {}
@@ -79,6 +80,7 @@ local script_url = 'https://raw.githubusercontent.com/darksoorok/deputy/main/age
 local script_path = thisScript().path
 local activeCheckbox = 0
 local active_kickOffPlayer = false
+local active_offmembers = false
 local arr_kick = {}
 for i = 1,500 do
     imbool[i] = imgui.ImBool(false)
@@ -104,58 +106,43 @@ local addprich = imgui.ImBuffer(150)
 local ages = imgui.ImBool(false)
 local overlay = imgui.ImBool(cfg.config.overlay)
 local Ukraine = imgui.ImBool(cfg.config.ukraine)
+local colorFAMchat = imgui.ImFloat4(imgui.ImColor(cfg.config.colorFAMchat):GetFloat4())
+local colorALchat = imgui.ImFloat4(imgui.ImColor(cfg.config.colorALchat):GetFloat4())
 
-local fmembers = imgui.ImBool(false)
 local offmembers = imgui.ImBool(false)
 local sw, sh = getScreenResolution()
 local user_id = imgui.ImBuffer(u8(cfg.config.user_id), 256)
 local chat_id = imgui.ImBuffer(u8(cfg.config.chat_id), 256)
+local text_invite = imgui.ImBuffer(u8(cfg.config.text_invite), 256)
+local leader_vk_id = imgui.ImBuffer(u8(cfg.config.leader_vk_id), 256)
+local leader_tg_id = imgui.ImBuffer(u8(cfg.config.leader_tg_id), 256)
+local token_vk = imgui.ImBuffer(u8(cfg.config.token_vk), 256)
+local token_tg = imgui.ImBuffer(u8(cfg.config.token_tg), 256)
+local show_token_vk = imgui.ImBool(false)
+local show_token_tg = imgui.ImBool(false)
+local famchat_enter = imgui.ImBuffer('', 256)
+local windowSizeX = 622
 
 if not doesFileExist('moonloader/config/agesilay_notf.ini') then inicfg.save(cfg, 'agesilay_notf.ini') end
+local fa_font = nil
+local fa_glyph_ranges = imgui.ImGlyphRanges({ fa.min_range, fa.max_range })
 
-local server_get = function()
-    local file = getWorkingDirectory() .. '\\config\\.csc';
-    local url = 'https://sd-scripts.ru/api/?fam.get={"name":"' .. sampGetPlayerNickname(select(2, sampGetPlayerIdByCharHandle(PLAYER_PED))) .. '"}'
-    local data = nil
-    downloadUrlToFile(url, file, function(id, status, p1, p2)
-        if status == 6 then 
-            local f = io.open(file, 'r+')
-            if f then 
-                local text = (f:read('a*'))
-                data = decodeJson(text)
-                f:close()
-                os.remove(file)
-            else
-                data = {error = true}
-            end
-        end
-    end)
-    while not data do wait(0) end
-    if data then return data end
-end
-
-local timer = lua_thread.create_suspended(function()
-    while true do
-        wait(refresh_time * 1000)
-        local data = server_get()
-        if not data.error then 
-            local data = data.response.result
-            refresh_time = data.script.refresh
-            local count = 0
-            for k, v in pairs(data.commands) do
-                tasks.list[k] = v
-                count = count + 1
-            end
-        end
+function imgui.BeforeDrawFrame()
+    if fa_font == nil then
+        local font_config = imgui.ImFontConfig() -- to use 'imgui.ImFontConfig.new()' on error
+        font_config.MergeMode = true
+        fa_font = imgui.GetIO().Fonts:AddFontFromFileTTF('moonloader/resource/fonts/fa-solid-900.ttf', 12.0, font_config, fa_glyph_ranges)
     end
-end)
+end
 
 local offkickplayer = lua_thread.create_suspended(function()
     while active_kickOffPlayer do wait(0)
         local ix = activeCheckbox
         sendMessage(1, '[Deputy Helper] {FFFF00}Внимание! {FFFFFF}Сейчас будет произведён кик игроков в оффлайне.')
         wait(10)
-        sendMessage(1, '[Deputy Helper] {FF0000}[ ! ] {D3D3D3}Кик игроков займёт {228fff}' ..wait_kick.v * activeCheckbox.. ' {CD5C5C}cекунд!')
+        if ix > 1 then
+            sendMessage(1, '[Deputy Helper] {FF0000}[ ! ] {D3D3D3}Кик игроков займёт примерно {228fff}' ..wait_kick.v * activeCheckbox.. ' {D3D3D3}cекунд!')
+        end
         for k,v in pairs(arr_kick) do
             if v[1] ~= nil then
                 ix = ix - 1
@@ -164,7 +151,7 @@ local offkickplayer = lua_thread.create_suspended(function()
             end
         end
         if activeCheckbox == 1 then
-            sendMessage(1, '[Deputy Helper] {FFFFFF}Был кикнут {228FFF}'..activeCheckbox..'{FFFFFF} игрок в оффлайне.')
+            sendMessage(1, '[Deputy Helper] {FFFFFF}Был кикнут {228FFF}один{FFFFFF} игрок в оффлайне.')
         elseif activeCheckbox >= 2 and activeCheckbox < 5 then
             sendMessage(1, '[Deputy Helper] {FFFFFF}Было кикнуто {228FFF}'..activeCheckbox..'{FFFFFF} игрока в оффлайне.')
         elseif activeCheckbox >= 5 then
@@ -176,18 +163,6 @@ local offkickplayer = lua_thread.create_suspended(function()
     end
 end)
 
-local processor = function()
-    for k, v in pairs(tasks.list) do 
-        local params = commands[v.command]
-        for k1, v1 in pairs(v.params) do
-            params = params:gsub('%(' .. k1 .. '%)', u8:decode(v1))
-        end
-        sampSendChat('/' .. v.command .. ' ' .. params)
-        tasks.list[k] = nil
-        wait(tasks.delay * 1000)
-    end
-end
-
 function check_update() -- Проверка обновлений
     downloadUrlToFile(update_url, update_path, function(id, status)
         if status == 6 then
@@ -196,6 +171,18 @@ function check_update() -- Проверка обновлений
                 sendMessage(1, '[Deputy Helper] {FFFFFF}Найдена новая версия скрипта {228fff}' ..updateIni.info.vers_text..'{FFFFFF}. Скачиваю...')
                 update_state = true
             end
+        end
+    end)
+end
+
+function downloadedLibs(link, path, name)
+    downloadUrlToFile(link, path, function(id, status, p1, p2)
+        if status == 6 then
+            lua_thread.create(function()
+                sendMessage(2, '{FF8C00}File {FF0000}"' ..name.. '"{FF8C00} downloaded successfully!')
+                wait(300)
+                thisScript():reload()
+            end)
         end
     end)
 end
@@ -210,6 +197,17 @@ function main()
 		print('{ff0000}Ошибка: {ffffff}скрипт работает только на проекте {FA8072}Arizona RP.')
 		thisScript():unload()
     end
+
+    if not l_effil then
+        downloadedLibs('https://raw.githubusercontent.com/darksoorok/deputy/main/libs/effil.lua', getWorkingDirectory() .. '\\lib\\effil.lua', 'effil.lua')
+	end
+    if not doesFileExist(getWorkingDirectory() .. '\\resource\\fonts\\fa-solid-900.ttf') then
+        downloadedLibs('https://raw.githubusercontent.com/darksoorok/deputy/main/libs/fa-solid-900.ttf', getWorkingDirectory() .. '\\resource\\fonts\\fa-solid-900.ttf', 'fa-solid-900.ttf')
+    end
+    if not l_fa then
+        downloadedLibs('https://raw.githubusercontent.com/darksoorok/deputy/main/libs/fAwesome5.lua', getWorkingDirectory() .. '\\lib\\fAwesome5.lua', 'fAwesome5.lua')
+	end
+
 
     if memory.tohex(getModuleHandle("samp.dll") + 0xBABE, 10, true ) == "E86D9A0A0083C41C85C0" then
         sampIsLocalPlayerSpawned = function()
@@ -226,29 +224,38 @@ function main()
     print('{ffffff}Скрипт {9ACD32}успешно загружен.{ffffff} Версия скрипта: {ff0000}' ..thisScript().version)
     _, id_deputy = sampGetPlayerIdByCharHandle(playerPed)
     nickname = sampGetPlayerNickname(id_deputy)
-    sendMessage(1, '[Deputy Helper] {ffffff}Скрипт запущен и работает {808080}[v '..thisScript().version..']. {ffffff}Настройки - {800080}/deputy')
+    sendMessage(1, '[Deputy Helper] {ffffff}Скрипт запущен и работает {808080}[v '..thisScript().version..']. {ffffff}Меню - {800080}/' ..cmd.v)
     -- // проверка даты
     if not current_day then
         current_day = os.date('%D')
     end
-    sampRegisterChatCommand('deputy', function()
+    sampRegisterChatCommand(cmd.v, function()
 		ages.v = not ages.v
+        if ages.v then
+            windowSizeX = 622; window_fmembers = true; sampSendChat('/fmembers')
+        end
     end)
     sampRegisterChatCommand('fi', faminvite)
-    sampRegisterChatCommand('fm', function() sampSendChat('/fmembers') end)
-    sampRegisterChatCommand('fmoff', function() 
-        lua_thread.create(function()
-            sampSendChat('/fammenu'); wait(100); sampSendClickTextdraw(2070); checkoffmembers = true
-        end)
-    end)
 
+    check_premium = true; sampSendChat('/mm')
+    showCursor(false)
     if doesFileExist(update_path) then os.remove(update_path) end
-    timer:run();
-    while true do 
-        wait(0) 
-        processor()
-        imgui.Process = ages.v or overlay.v or fmembers.v or offmembers.v; imgui.LockPlayer = ages.v or fmembers.v or offmembers.v; imgui.ShowCursor = imgui.Process
+    while true do wait(0)
+        imgui.Process = ages.v or overlay.v
+        imgui.LockPlayer = ages.v
+        imgui.ShowCursor = imgui.Process
         if overlay.v then imgui.ShowCursor = false end
+        -- close imgui ages.v
+        if not ages.v and (window_offmembers or window_fmembers or window_setting or window_famchat) and not checkfmembers and not checkoffmembers then
+            window_fmembers, window_offmembers, window_famchat, window_setting = false;
+            for i = 1,500 do
+                imbool[i] = imgui.ImBool(false)
+            end
+            arr_kick = {}
+            activeCheckbox = 0
+            active_offmembers = false
+        end
+        -- check VIP status
         if sampGetGamestate() == 3 and sampIsLocalPlayerSpawned() then
             if checkvip then
                 while (encodeJson(vipp) == '{}') do
@@ -270,8 +277,10 @@ function main()
                 end
                 vipp = {}
                 checkvip = false
+                check_premium = false
             end
         end
+        -- check current day
         if current_day ~= os.date('%D') then
             wait(3000)
             current_day = os.date('%D')
@@ -352,14 +361,29 @@ function sampev.onPlaySound(sound, pos)
 end
 function onWindowMessage(msg, wparam, lparam)
     if msg == 0x100 or msg == 0x101 then
-        if (wparam == keys.VK_ESCAPE and fmembers.v  or offmembers.v) and not checkfmembers and not checkoffmembers and not isPauseMenuActive() then
+        if (wparam == keys.VK_ESCAPE and ages.v) and not isPauseMenuActive() then
+            if checkfmembers then
+                imguiclose = true
+                checkfmembers = false
+            end
+            if checkoffmembers then
+                for i = 1,500 do
+                    imbool[i] = imgui.ImBool(false)
+                end
+                arr_kick = {}
+                activeCheckbox = 0
+                active_offmembers = false
+                window_offmembers = false
+                imguiclose = true
+                checkoffmembers = false
+            end
             consumeWindowMessage(true, false)
             if msg == 0x101 then
-                offmembers.v = false; fmembers.v = false; selects = nil
+                ages.v = false; selects = nil;
             end
         end
-        if (wparam == keys.VK_F8) and not stop_render then
-            lua_thread.create(function() stop_render = true; wait(1300); stop_render = false end)
+        if (wparam == keys.VK_TAB and ages.v) and not isPauseMenuActive() then
+            consumeWindowMessage(true, false)
         end
     end
 end
@@ -388,13 +412,17 @@ end
 
 function SendMessageDeputy(message)
     if choise_socnetwork.v == 1 and user_id.v ~= '' then
-        https.request('https://api.vk.com/method/messages.send?v=5.131&message='..encodeUrl(message)..'&user_id='..user_id.v..'&access_token='..access_token..'&random_id='..math.random(-2147483648, 2147483647))
+        https.request('https://api.vk.com/method/messages.send?v=5.131&message='..encodeUrl(message)..'&user_id='..user_id.v..'&access_token='.. token_vk.v ..'&random_id='..math.random(-2147483648, 2147483647))
     elseif choise_socnetwork.v == 2 and chat_id.v ~= '' then 
-        https.request('https://api.telegram.org/bot1967806703:AAEJyg7NxAHDqhKp5_VPoCxaf3lxHR9tq90/sendMessage?chat_id='..chat_id.v..'&text='..encodeUrl(message))
+        https.request('https://api.telegram.org/bot1967806703:AAFJx1ueWWixrhN9nxUEGvz_I5LsiZKS1e4/sendMessage?chat_id='..chat_id.v..'&text='..encodeUrl(message))
     end
 end
 
 function sampev.onShowDialog(id, style, title, button1, button2, text)
+    if id == 722 and style == 2 and check_premium then
+        sampSendDialogResponse(id, 1, 10, nil)
+        return false
+    end
     if text:find('В этой семье никто не состоит или нет оффлайн игроков') then
         lua_thread.create(function()
             wait(300)
@@ -404,24 +432,24 @@ function sampev.onShowDialog(id, style, title, button1, button2, text)
             checkoffmembers = false
         end)
     end
+    if imguiclose then
+        lua_thread.create(function()
+            wait(300)
+            sampSendDialogResponse(id, 0, 0, nil)
+            sampCloseCurrentDialogWithButton(0)
+        end)
+        imguiclose = false
+        return false
+    end
     if id == 2931 and style == 5 then
-        if imguiclose then
-            lua_thread.create(function()
-                wait(300)
-                sampSendDialogResponse(id, 0, 0, nil)
-                sampCloseCurrentDialogWithButton(0)
-            end)
-            imguiclose = false
-            return false
-        end
         if checkoffmembers then
-            offmembers.v = true
             if not page_off then offmembers = {} end
             local lines = -1
             for line in text:gmatch('[^\r\n]+') do
                 if line:find('%{FFFFFF%}([A-z_]+)%s+%((%d+)%)(.+)%s+(%d+%s.+)') then
                     local name, rank, name_rank, day_off = line:match('%{FFFFFF%}([A-z_]+)%s+%((%d+)%)(.+)%s+(%d+%s.+)')
                     table.insert(offmembers,{name, rank, name_rank, day_off})
+                    active_offmembers = true
                 end
                 if line:find('%{B0E73A%}Вперед %>%>%>') then
                     lua_thread.create(function()
@@ -445,9 +473,8 @@ function sampev.onShowDialog(id, style, title, button1, button2, text)
             return false
         end
     end
-    if text:find('%(Ранг%) Ник') and id == 1488 and style == 5 then
+    if text:find('%(Ранг%) Ник') and window_fmembers and id == 1488 and style == 5 then
         checkfmembers = true
-        fmembers.v = true
         online = title:match('%{......%}[A-z]+%(В сети%: (%d+)%) %| %{......%}Семья')
         if not page then members = {} end
         local lines = -1
@@ -468,6 +495,7 @@ function sampev.onShowDialog(id, style, title, button1, button2, text)
             lines = lines + 1
         end
         checkvip = true
+        check_premium = true; sampSendChat('/mm')
         checkfmembers = false
         if not page then
             lua_thread.create(function()
@@ -478,9 +506,29 @@ function sampev.onShowDialog(id, style, title, button1, button2, text)
         end
         return false
     end
+    if id == 2763 and style == 2 and nalog then sampSendDialogResponse(2763, 1, 9, -1) end
+    if id == 15247 and style == 1 and nalog then 
+        for v in string.gmatch(text, '[^\n]+') do
+            if v:find('Сейчас налог на квартиру составляет') then
+                local nalog_money = v:match('Сейчас налог на квартиру составляет {......}%$([%d%.]+){......}%.'):gsub('%.', '')
+                lua_thread.create(function()
+                    sampSendDialogResponse(15247, 1, nil, nalog_money); wait(100); sampCloseCurrentDialogWithButton(0); sampSendClickTextdraw(65535)
+                end)
+                break
+            end
+        end
+        nalog = false
+    end
 end
 
 function sampev.onServerMessage(color, text)
+    if check_premium then
+        local premium_getname = text:match('%d+%.%s(.+)%[%d+%]')
+        if premium_getname then
+            table.insert(premium, premium_getname)
+            return false
+        end
+    end
     local getname = text:match('^%[VIP%]: (.+)%[%d+%].+уровень')
     if getname then
         table.insert(vipp, getname) 
@@ -498,13 +546,13 @@ function sampev.onServerMessage(color, text)
         return false
     end
 
-    local id_uid, level, uid, platform = text:match('%[(%d+)%] %w+_%w+ %| Уровень%: (%d+) %| UID%: (%d+) %| packetloss%: %d+%.%d+ %((.+)%)')
+    local id_uid, level, uid, platform = text:match('%[(%d+)%] %w+_%w+ %| Уровень%: (%d+) %| UID%: (%d+) %|.+packetloss%: %d+%.%d+ %((.+)%)')
 
     if id_uid and level and uid and check_blacklist then
         updateBlacklist()
         if fi then
             if tonumber(level) >= 3 then
-                for k, v in pairs(blacklist) do
+                for k, v in ipairs(blacklist) do
                     if v == tonumber(uid) then
                         sampSendChat('Вы в чёрном списке нашей семьи!')
                         checks_blacklist = true
@@ -512,13 +560,15 @@ function sampev.onServerMessage(color, text)
                     end
                 end
                 if not checks_blacklist then
-                    sampSendChat('/faminvite ' ..id_uid)
+                    arg = id_uid
+                    lua_thread.create(function() wait(500); sampSendChat('/faminvite ' ..arg) end)
+                   
                 end
             else
                 sampSendChat('Вы слишком мало проживаете в штате. От 3-х лет приём в семью.')
             end
         else
-            for k, v in pairs(blacklist) do
+            for k, v in ipairs(blacklist) do
                 if v == tonumber(uid) then
                     checks_blacklist = true
                 end
@@ -544,18 +594,30 @@ function sampev.onServerMessage(color, text)
         if (names == nickname) then
             lua_thread.create(function()
                 local my_text = text:gsub('{......}', '')
-                sendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>')
+                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ] Принял: ' ..invite.. ', квесты: ' ..quest.. '.\n#mute')
                 wait(500)
                 SendMessageDeputy(my_text)
             end)
         end
     end
 
-    if text:find('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} выгнал из семьи (%w+_%w+)%[(%d+)%]%! Причина%: (.+)') then     
+    if text:find('%{......%}%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} выгнал из семьи (%w+_%w+)%[(%d+)%]%! Причина%: (.+)') then
         if (names == nickname) then
             lua_thread.create(function()
                 local my_text = text:gsub('{......}', '')
-                sendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>')
+                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ] Принял: ' ..invite.. ', квесты: ' ..quest.. '.\n#kick')
+                wait(500)
+                SendMessageDeputy(my_text)
+            end)
+        end
+    end
+
+    if text:find('%[Семья %(Новости%)%] (%w+_%w+)%[(%d+)%]%:%{......%} в оффлайне выгнал игрока (%w+_%w+) из семьи%!') then
+        if (names == nickname) then
+            lua_thread.create(function()
+                wait(1100)
+                local my_text = text:gsub('{......}', '')
+                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ] Принял: ' ..invite.. ', квесты: ' ..quest.. '.\n#offlinekick')
                 wait(500)
                 SendMessageDeputy(my_text)
             end)
@@ -578,9 +640,13 @@ function sampev.onServerMessage(color, text)
                 invite = invite + 1
                 cfg.config.invite = invite
                 inicfg.save(cfg, 'agesilay_notf.ini')
-                sendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>. Принял: ' ..invite.. ' человек.')
+                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ]. Принял: ' ..invite.. ' человек.\n#invite')
                 wait(500)
-                SendMessageDeputy(my_text)        
+                SendMessageDeputy(my_text)
+                if text_invite.v then
+                    wait(800)
+                    sampSendChat('/fam ' ..u8:decode(text_invite.v))
+                end   
             end)
         end
     end
@@ -592,7 +658,7 @@ function sampev.onServerMessage(color, text)
                 quest = quest + 1
                 cfg.config.quest = quest
                 inicfg.save(cfg, 'agesilay_notf.ini')
-                sendMessageLeader(my_text.. '\n<' ..thisScript().version.. '>. Выполнил квестов: ' ..quest.. '.')
+                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ]. Выполнил квестов: ' ..quest.. '.\n#quest')
                 wait(500)
                 SendMessageDeputy(my_text)
             end)
@@ -621,33 +687,33 @@ function sampev.onServerMessage(color, text)
         sendMessageLeader(text)
     end
 
-    -- -- arguments
-    -- local nick_name, cmd, arg = text:match('%{......%}%[Семья%] %[10%] Imperator %|  (%w+_%w+)%[%d+%]%:%{......%}%s([^%d+]+)%s(.+)')
-    -- if cmd and cmd:find(('кик' or 'мут' or 'ранг' or 'унмут')) and arg and (nick_name == 'Enzo_Davenport' or nick_name == 'Dmitry_Agesilay') then
-    --     lua_thread.create(function() 
-    --         local arr_cmd = {
-    --             ['кик'] = '/famuninvite', 
-    --             ['мут'] = '/fammute', 
-    --             ['ранг'] = '/setfrank', 
-    --             ['унмут'] = '/famunmute'
-    --         }
-    --         wait(600); sampSendChat(arr_cmd[cmd] .. ' ' ..arg)
-    --         cmd, arg, nick_name = nil
-    --     end)
-    -- end
-end
+    if text:find('%[Семья.*%].+[a-zA-Z_]+%[%d+%]:') then
+        table.insert(famchat, '{b9c1b8}[' .. os.date('%H:%M:%S').. '] ' ..text)
+        local cR, cG, cB, cA = imgui.ImColor(cfg.config.colorFAMchat):GetRGBA()
+        text = text:gsub('%{......%}%[Семья', '%[Семья')
+        return { join_argb(cR, cG, cB, cA), text }
+    end
+    if text:find('%[Новости Семьи%]%{FFFFFF%}.+') then
+        table.insert(famchat, '{b9c1b8}[' .. os.date('%H:%M:%S').. '] ' ..text)
+        local cR, cG, cB, cA = imgui.ImColor(cfg.config.colorFAMchat):GetRGBA()
+        text = text:gsub('%{......%}%[Новости Семьи', '%[Новости Семьи')
+        return { join_argb(cR, cG, cB, cA), text }
+    end
+    if text:find('%[Family.*%]') then
+        table.insert(famchat, '{b9c1b8}[' .. os.date('%H:%M:%S').. '] ' ..text)
+        local cR, cG, cB, cA = imgui.ImColor(cfg.config.colorFAMchat):GetRGBA()
+        text = text:gsub('%]', ']{b9c1b8}', 1)
+        return { join_argb(cR, cG, cB, cA), text }
+    end
 
--- function sampev.onSendCommand(cmd) -- функция для команд
---     if not work then
---         local cmds, id_cmd = cmd:match('([^%d+]+)%s(%d+)') 
---         if cmds == '/famuninvite' then
---             if fmembers.v then fmembers.v = false end
---             sampSendChat('/id ' ..sampGetPlayerNickname(id_cmd))
---             takeScreenshot(1500)
---             cmds, id_cmd = nil
---         end
---     end
--- end
+    if text:match('%[Альянс.*%].+[a-zA-Z_]+%[%d+%]: .*') then
+        table.insert(famchat, '{b9c1b8}[' .. os.date('%H:%M:%S').. '] ' ..text)
+        local cR, cG, cB, cA = imgui.ImColor(cfg.config.colorALchat):GetRGBA()
+		text = text:gsub('%]:', ']:{b9c1b8}', 1)
+        return { join_argb(cR, cG, cB, cA), text }
+    end
+
+end
 
 function takeScreenshot(time)
     lua_thread.create(function()
@@ -664,7 +730,8 @@ function sampGetPlayerOrganisation(playerId)
         [2147503871] = 'Полиция',
         [2164227710] = 'Больница',
         [2160918272] = 'Правительство',
-        [2157536819] = 'Армия/ТСР',
+        [2157536819] = 'Армия',
+        [2159918525] = 'ТСР',
         [2164221491] = 'Автошкола',
         [2164228096] = 'СМИ',
         [2150206647] = 'Банк ЛС',
@@ -686,80 +753,783 @@ end
 
 function imgui.OnDrawFrame()
     if (ages.v) then
-        imgui.SetNextWindowSize(imgui.ImVec2(305,270), imgui.Cond.FirstUseEver)
-        imgui.SetNextWindowPos(imgui.ImVec2((sw/2),(sh/2)), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5), imgui.WindowFlags.AlwaysAutoResize)
-        imgui.Begin(u8'Приветствую, '..nickname..'('..id_deputy..') | S&D Scripts', ages, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize)
-
-        imgui.Text(u8'Куда присылать уведомления?')
-        if imgui.RadioButton(u8'ВКонтакте',choise_socnetwork, 1) then
-            cfg.config.socnetwork = choise_socnetwork.v
-            inicfg.save(cfg, 'agesilay_notf.ini')
-        end
-        imgui.SameLine()
-        if imgui.RadioButton(u8'Telegram',choise_socnetwork, 2) then
-            cfg.config.socnetwork = choise_socnetwork.v
-            inicfg.save(cfg, 'agesilay_notf.ini')
-        end
-        imgui.PushItemWidth(200)
-        if imgui.InputText(u8(choise_socnetwork.v == 1 and 'Введите VK ID' or 'Введите Chat ID'), (choise_socnetwork.v == 1 and user_id or chat_id)) then
-            if choise_socnetwork.v == 1 then 
-                cfg.config.user_id = user_id.v
-            else
-                cfg.config.chat_id = chat_id.v
-            end
-            inicfg.save(cfg, 'agesilay_notf.ini') 
-        end
-        imgui.Separator()
-        if imgui.Checkbox(u8'Я из Украины', Ukraine) then cfg.config.ukraine = Ukraine.v; inicfg.save(cfg, 'agesilay_notf.ini') end
-        if imgui.Button(u8'Тестовое сообщение') then
-            local _, pID = sampGetPlayerIdByCharHandle(playerPed)
-            local name = sampGetPlayerNickname(pID)
-            local testmessage = name.. '[' ..pID.. '] вызвал тестовое сообщение.'
-            local msg_responde = (choise_socnetwork.v == 1 and user_id.v or chat_id.v)
-            if msg_responde ~= '' then
-                sampAddChatMessage('[Отправлено в ' ..(choise_socnetwork.v == 1 and 'ВКонтакте' or 'Telegram').. ']: {ffffff}' ..testmessage, 0x228fff)
-            else
-                sampAddChatMessage('[Тестовое сообщение]: {ffffff}' ..testmessage, 0x228fff)
+        local ww, wh = windowSizeX + 7, 387
+        imgui.SetNextWindowSize(imgui.ImVec2(ww, wh))
+        imgui.SetNextWindowPos(imgui.ImVec2((sw-ww)/2, (sh-wh)/2), imgui.Cond.FirstUseEver)
+        imgui.Begin('Deputy Helper##ages', ages,  imgui.WindowFlags.NoCollapse + imgui.WindowFlags.AlwaysAutoResize)
+        imgui.ColorButton(window_fmembers)
+        if imgui.Button(fa.ICON_FA_USER_ALT .. u8' Онлайн', imgui.ImVec2(100,20)) then
+            if window_offmembers then
+                for i = 1,500 do
+                    imbool[i] = imgui.ImBool(false)
+                end
+                arr_kick = {}
+                activeCheckbox = 0
+                if checkoffmembers then
+                    imguiclose = true
+                    checkoffmembers = false
+                end
+                active_offmembers = false
+                window_offmembers = false
+            elseif window_famchat then
+                windowSizeX = 622
+                window_famchat = false
+            elseif window_setting then
+                window_setting = false
             end
             lua_thread.create(function()
-                tmsg = true
-                sendMessageLeader(testmessage.. '\n<' ..thisScript().version.. '> Принял: ' ..invite.. ' человек, квесты: ' ..quest.. '.')
-                wait(500)
-                SendMessageDeputy(testmessage)
+                wait(300); window_fmembers = true; sampSendChat('/fmembers')
             end)
         end
+        imgui.PopStyleColor(3)
         imgui.SameLine()
-        if imgui.Button(u8'Перезапустить') then imgui.Process = false; thisScript():reload() end
-        imgui.Separator()
-        if imgui.Checkbox(u8'Оверлей (статистика в отдельном окне)', overlay) then cfg.config.overlay = overlay.v; inicfg.save(cfg, 'agesilay_notf.ini') end
-        imgui.Separator()
-        imgui.CenterTextColoredRGB('{228fff}Статистика за сегодня {ffffff}| {FFFF00}' ..os.date('%d/%m/%Y'))
-        imgui.BeginChild('##members', imgui.ImVec2(295, 45), true, imgui.WindowFlags.NoScrollbar)
-            imgui.Columns(2)
-            imgui.SetColumnWidth(-1, 190); imgui.SetCursorPosX(50); imgui.TextColoredRGB('{FF0000}Принято человек'); imgui.NextColumn(); 
-            imgui.SetColumnWidth(-1, 105); imgui.CenterColumnTextColoredRGB('{098aed}'..invite); imgui.NextColumn()
-            imgui.Separator()
-            imgui.SetCursorPosX(75); imgui.TextColoredRGB('{FF0000}Задания'); imgui.NextColumn(); imgui.CenterColumnTextColoredRGB('{098aed}'..quest.. '/8')
-        imgui.EndChild()
-        if imgui.Button(u8'Сброс статистики') then
-            current_day = os.date('%D')
-            invite = 0
-            quest = 0
-            cfg.config.current_day = current_day
-            cfg.config.invite = invite
-            cfg.config.quest = quest
-            inicfg.save(cfg, 'agesilay_notf.ini')
-            sendMessage(1, '[Deputy Helper] {ffffff}Статистика успешно сброшена.')
+        imgui.ColorButton(window_offmembers)
+        if imgui.Button(fa.ICON_FA_USER_ALT_SLASH .. u8' Оффлайн', imgui.ImVec2(100,20)) then
+            if window_fmembers then
+                selects = nil
+                if checkfmembers then
+                    imguiclose = true
+                    checkfmembers = false
+                end
+                window_fmembers = false 
+            elseif window_setting then
+                window_setting = false
+            elseif window_famchat then
+                windowSizeX = 622
+                window_famchat = false
+            end
+            lua_thread.create(function()
+                sampSendChat('/fammenu'); wait(300); sampSendClickTextdraw(2070); checkoffmembers = true; wait(600)
+            end)
+            window_offmembers = true;
         end
+        imgui.PopStyleColor(3)
         imgui.SameLine()
+        imgui.ColorButton(window_famchat)
+        if imgui.Button(fa.ICON_FA_ENVELOPE_OPEN_TEXT ..u8' Чат', imgui.ImVec2(100,20)) then
+            if window_fmembers then
+                selects = nil
+                if checkfmembers then
+                    imguiclose = true
+                    checkfmembers = false
+                end
+                window_fmembers = false
+            elseif window_offmembers then
+                for i = 1,500 do
+                    imbool[i] = imgui.ImBool(false)
+                end
+                arr_kick = {}
+                activeCheckbox = 0
+                if checkoffmembers then
+                    imguiclose = true
+                    checkoffmembers = false
+                end
+                active_offmembers = false
+                window_offmembers = false
+            elseif window_setting then
+                window_setting = false
+            end
+            windowSizeX = 862
+            window_famchat = true
+        end
+        imgui.PopStyleColor(3)
+        imgui.SameLine()
+        imgui.ColorButton(window_setting)
+        if imgui.Button(fa.ICON_FA_COG .. u8' Настройки', imgui.ImVec2(100,20)) then
+            if window_fmembers then
+                selects = nil
+                if checkfmembers then
+                    imguiclose = true
+                    checkfmembers = false
+                end
+                window_fmembers = false
+            elseif window_offmembers then
+                for i = 1,500 do
+                    imbool[i] = imgui.ImBool(false)
+                end
+                arr_kick = {}
+                activeCheckbox = 0
+                if checkoffmembers then
+                    imguiclose = true
+                    checkoffmembers = false
+                end
+                active_offmembers = false
+                window_offmembers = false
+            elseif window_famchat then
+                windowSizeX = 622
+                window_famchat = false
+            end
+            window_setting = true 
+        end
+        imgui.PopStyleColor(3)
+        imgui.Separator()
+        imgui.BeginChild('##window', imgui.ImVec2(windowSizeX, 332), false, imgui.WindowFlags.NoScrollbar)
+            if window_fmembers then
+                imgui.Spacing()
+                imgui.CenterTextColoredRGB('Онлайн семьи: ' ..(checkfmembers and '{FF0000}' or '{FFFF00}').. (online or '0'))
+                imgui.CenterTextColoredRGB('Игроков с VIP | без VIP аккаунта: {00FF00}' .. vip .. ' {ffffff}| {FF0000}' ..novip)
+                imgui.Spacing()
+                imgui.BeginChild('##members', imgui.ImVec2(415, 260), true, imgui.WindowFlags.NoScrollbar)
+                    imgui.Columns(6, nil, false)
+                    imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}Ранг'); imgui.NextColumn()
+                    imgui.SetColumnWidth (-1, 170); imgui.TextColoredRGB('{228fff}Никнейм[ID]'); imgui.NextColumn()
+                    imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}LVL'); imgui.NextColumn()
+                    imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}AFK'); imgui.NextColumn()
+                    imgui.SetColumnWidth(-1, 80); imgui.TextColoredRGB('{228fff}ВИП'); imgui.NextColumn()
+                    imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}Квест'); imgui.NextColumn(); imgui.Separator()
+                    for k, v in ipairs(members) do
+                        if v[1] ~= nil then
+                            if imgui.Selectable(v[1].. '##' ..k - 1, selects == k - 1, 6) then
+                                check_rank.v = v[1]
+                                vzID = v[3]
+                                vzName = v[2]
+                                vzLVL = v[4]
+                                selects = k - 1
+                                sampSendChat('/id ' ..vzID)
+                                check_blacklist = true
+                            end
+                            imgui.NextColumn()
+                            local hexPlayerColor = string.format('{%0.6x}', bit.band(sampGetPlayerColor(v[3]),0xffffff))
+                            imgui.TextColoredRGB(hexPlayerColor .. tostring(v[2]..'['..v[3]..']')); imgui.NextColumn()
+                            imgui.Text(tostring(v[4])); imgui.NextColumn()
+                                local arrayColor_afk = {'{ffffff}', '{FFA07A}', '{FA8072}', '{CD5C5C}'}
+                            if tonumber(v[5]) == 0 then
+                                color_afk = arrayColor_afk[1]
+                            elseif tonumber(v[5]) <= 300 then
+                                color_afk = arrayColor_afk[2]
+                            elseif tonumber(v[5]) <= 1000 then
+                                color_afk = arrayColor_afk[3]
+                            elseif tonumber(v[5]) > 1000 then
+                                color_afk = arrayColor_afk[4]
+                            end
+                            imgui.TextColoredRGB(tostring(color_afk .. v[5])); imgui.NextColumn()
+                            if strVips:find(v[2]) then
+                                status = '{FFA500}Titan'
+                                for m,x in ipairs(premium) do
+                                    if x == v[2] then
+                                        status = '{FF8C00}Premium'
+                                        break
+                                    end
+                                end
+                                imgui.TextColoredRGB(tostring(status))
+                            else
+                                imgui.TextColoredRGB(tostring(strVips:find(v[2]) and '{00FF00}Имеется' or '{FF0000}Не имеется'))
+                            end
+                            imgui.NextColumn()
+                            for i = 1, 8 do
+                                local ia = i-1
+                                local color_quest = {'{FF0000}', '{B22222}', '{DC143C}', '{EEE8AA}', '{F0E68C}', '{FFD700}', '{ADFF2F}', '{00FF00}'}
+                                if tonumber(v[6]) == ia then
+                                    imgui.TextColoredRGB(color_quest[i] .. tostring(v[6]) .. '/8')
+                                end
+                            end; imgui.NextColumn(); imgui.Separator()
+                        end
+                    end
+                imgui.EndChild()
+                imgui.SameLine()
+                imgui.BeginChild('##infoplayer', imgui.ImVec2(200, 260), true)
+                    if selects then
+                        local hexPlayerColor = string.format('{%0.6x}', bit.band(sampGetPlayerColor(vzID),0xffffff))
+                        imgui.CenterTextColoredRGB('{228fff}Информация об игроке')
+                        imgui.BeginChild('##information', imgui.ImVec2(190,90), true)
+                            imgui.Columns(2)
+                            imgui.SetColumnWidth(-1, 60); imgui.TextColoredRGB('{FFFF00}Никнейм'); imgui.NextColumn()
+                            imgui.SetColumnWidth(-1, 150); imgui.Text(vzName); imgui.NextColumn()
+                            imgui.Separator()
+                            imgui.TextColoredRGB('{FFFF00}Фракция'); imgui.NextColumn()
+                            imgui.TextColoredRGB(hexPlayerColor .. sampGetPlayerOrganisation(vzID)); imgui.NextColumn()
+                            imgui.Separator()
+                            imgui.TextColoredRGB('{FFFF00}UID|PING'); imgui.NextColumn() 
+                            imgui.TextColoredRGB((info_blacklist or 'None') .. '{ffffff} | ' ..tostring(sampGetPlayerPing(vzID))); imgui.NextColumn()
+                            imgui.Separator()
+                            imgui.TextColoredRGB('{FFFF00}Platform'); imgui.NextColumn()
+                            imgui.TextColoredRGB((info_platform or 'None')); imgui.NextColumn()
+                        imgui.EndChild()
+                        for i = 1, 10 do
+                            if imgui.RadioButton(i.. '##' ..i, check_rank, i) then
+                                sampSendChat('/setfrank '..vzID..' '..check_rank.v)
+                                sampSendChat('/fmembers')
+                            end
+                            if i ~= 5 and i ~= 10 then imgui.SameLine() end
+                        end
+                        if imgui.Button(fa.ICON_FA_VOLUME_MUTE .. u8' Выдать мут',imgui.ImVec2(190,20)) then
+                            imgui.OpenPopup(u8'Выбор мута')
+                        end
+                        if imgui.Button(fa.ICON_FA_VOLUME_DOWN .. u8' Снять мут',imgui.ImVec2(190,20)) then
+                            sampSendChat('/famunmute '..vzID)
+                        end
+                        if imgui.Button(fa.ICON_FA_TIRED .. u8' Выгнать из семьи',imgui.ImVec2(190,20)) then
+                            imgui.OpenPopup(u8'Выбор увольнения')
+                        end
+                        if imgui.Button(fa.ICON_FA_COPY .. u8' Скопировать ник',imgui.ImVec2(190,20)) then
+                            setClipboardText(vzName) 
+                            sendMessage(1, '[Deputy Helper] {FFFFFF}Ник игрока {228fff}'.. vzName ..'['..vzID..']{ffffff} скопирован в буфер обмена.')
+                            addOneOffSound(0.0, 0.0, 0.0, 1054)
+                        end
 
+                        if imgui.BeginPopupModal(u8'Выбор увольнения', _, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar +  imgui.WindowFlags.AlwaysAutoResize) then
+                            imgui.CenterTextColoredRGB('{228fff}Выберите причину увольнения')
+                            imgui.Spacing()
+                            imgui.BeginChild('##choise_mute', imgui.ImVec2(200,100), true)
+                                for k,v in pairs({
+                                    'Оскорбление', 'Упоминание родных', 'Пропаганда', 'Неадекват' 
+                                }) do
+                                    if imgui.Button(u8(v), imgui.ImVec2(192,20)) then
+                                        local vzUID = info_blacklist:gsub('{......}','')
+                                        sampSendChat('/famuninvite ' ..vzID.. ' ' ..v.. ' (UID: ' ..vzUID.. ')')
+                                        selects = nil
+                                        imgui.CloseCurrentPopup()
+                                    end
+                                end
+                            imgui.EndChild()
+                            imgui.Spacing()
+                            if imgui.Button(u8'Ввести свою причину',imgui.ImVec2(200,20)) then
+                                unvpopup = true
+                                imgui.CloseCurrentPopup()
+                            end
+                            if imgui.Button(u8'Отмена',imgui.ImVec2(200,20)) then
+                                imgui.CloseCurrentPopup()
+                            end
+                            imgui.EndPopup()
+                        end
+
+                        if imgui.BeginPopupModal(u8'Выбор мута', _, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar +  imgui.WindowFlags.AlwaysAutoResize) then
+                            imgui.CenterTextColoredRGB('{228fff}Выберите причину мута')
+                            imgui.Spacing()
+                            imgui.BeginChild('##choise_mute', imgui.ImVec2(200,197), true)
+                                for k,v in pairs({
+                                    ['Флуд'] = 10,
+                                    ['Капс'] = 10,
+                                    ['Нерациональное исп.симв.'] = 10,
+                                    ['Промежуток рекламы 3 мин.'] = 30,
+                                    ['Оскорбление'] = 60,
+                                    ['Неадекват'] = 100,
+                                    ['Провокация конфликта'] = 30,
+                                    ['Сторонняя реклама'] = 60,
+                                }) do
+                                    if imgui.Button(u8(k), imgui.ImVec2(192,20)) then
+                                        sampSendChat('/fammute ' ..vzID.. ' ' ..v.. ' ' ..k)
+                                        imgui.CloseCurrentPopup()
+                                    end
+                                end
+                            imgui.EndChild()
+                            imgui.Spacing()
+                            if imgui.Button(u8'Ввести свою причину',imgui.ImVec2(200,20)) then
+                                mutepopup = true
+                                imgui.CloseCurrentPopup()
+                            end
+                            if imgui.Button(u8'Отмена',imgui.ImVec2(200,20)) then
+                                imgui.CloseCurrentPopup()
+                            end
+                            imgui.EndPopup()
+                        end
+
+                        if mutepopup then imgui.OpenPopup(u8'Мут'); mutepopup = false end
+                        if unvpopup then imgui.OpenPopup(u8'Уволить'); unvpopup = false end
+
+                        if imgui.BeginPopupModal(u8'Мут', _, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar +  imgui.WindowFlags.AlwaysAutoResize) then
+                            imgui.SameLine(70)
+                            imgui.TextDisabled(u8'Введите причину мута и время')
+                            imgui.PushItemWidth(240)
+                            if imgui.InputText(u8'##123', setmute, imgui.InputTextFlags.EnterReturnsTrue) then
+                                if setmute.v ~= '' and setmute.v ~= nil and settime.v ~= '' and settime.v ~= nil then
+                                    sampSendChat('/fammute '..vzID..' '..settime.v.. ' ' ..u8:decode(setmute.v))
+                                    setmute.v = ''
+                                    settime.v = ''
+                                    imgui.CloseCurrentPopup()
+                                else
+                                    sendMessage(1, '[Deputy Helper] {FFFFFF}Заполните все поля или закройте выдачу мута!')
+                                end
+                            end
+                            imgui.SameLine()
+                            imgui.PushItemWidth(50)
+                            if imgui.InputText(u8'##12333', settime, imgui.InputTextFlags.EnterReturnsTrue) then
+                                if setmute.v ~= '' and setmute.v ~= nil and settime.v ~= '' and settime.v ~= nil then
+                                    sampSendChat('/fammute '..vzID..' '..settime.v.. ' ' ..u8:decode(setmute.v))
+                                    setmute.v = ''
+                                    settime.v = ''
+                                    imgui.CloseCurrentPopup()
+                                else
+                                    sendMessage(1, '[Deputy Helper] {FFFFFF}Заполните все поля или закройте выдачу мута!')
+                                end
+                            end
+                            imgui.NewLine()
+                            if imgui.Button(u8'Выдать мут',imgui.ImVec2(300,25)) then
+                                if setmute.v ~= '' and setmute.v ~= nil and settime.v ~= '' and settime.v ~= nil then
+                                    sampSendChat('/fammute '..vzID..' '..settime.v.. ' ' ..u8:decode(setmute.v))
+                                    setmute.v = ''
+                                    settime.v = ''
+                                    imgui.CloseCurrentPopup()
+                                else
+                                    sendMessage(1, '[Deputy Helper] {FFFFFF}Заполните все поля или закройте выдачу мута!')
+                                end
+                            end
+                            if imgui.Button(u8'Отмена',imgui.ImVec2(300,25)) then
+                                imgui.CloseCurrentPopup()
+                            end
+                            imgui.EndPopup()
+                        end
+                        
+                        if imgui.BeginPopupModal(u8'Уволить', _, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar +  imgui.WindowFlags.AlwaysAutoResize) then
+                            imgui.SameLine(80)
+                            imgui.TextDisabled(u8'Введите причину увольнения')
+                            imgui.PushItemWidth(300)
+                            if imgui.InputText(u8'##123', uninvite, imgui.InputTextFlags.EnterReturnsTrue) then
+                                if uninvite.v ~= '' and uninvite.v ~= nil then
+                                    local vzUID = info_blacklist:gsub('{......}','')
+                                    sampSendChat('/famuninvite '..vzID..' '..u8:decode(uninvite.v).. ' (UID: ' ..vzUID.. ')')
+                                    uninvite.v = ''
+                                    selects = nil
+                                    imgui.CloseCurrentPopup()
+                                else
+                                    sendMessage(1, '[Deputy Helper] {FFFFFF}Введите причину увольнения!')
+                                end
+                            end
+                            imgui.NewLine()
+                            if imgui.Button(u8'Уволить',imgui.ImVec2(300,25)) then
+                                if uninvite.v ~= '' and uninvite.v ~= nil then
+                                    local vzUID = info_blacklist:gsub('{......}','')
+                                    sampSendChat('/famuninvite '..vzID..' '..u8:decode(uninvite.v).. ' (UID: ' ..vzUID.. ')')
+                                    uninvite.v = ''
+                                    selects = nil
+                                    imgui.CloseCurrentPopup()
+                                else
+                                    sendMessage(1, '[Deputy Helper] {FFFFFF}Введите причину увольнения!')
+                                end
+                            end
+                            if imgui.Button(u8'Отмена',imgui.ImVec2(300,25)) then
+                                imgui.CloseCurrentPopup()
+                            end
+                            imgui.EndPopup()
+                        end
+                    else
+                        imgui.SetCursorPosY(110)
+                        imgui.CenterTextColoredRGB('{808080}Выберите игрока из списка.')
+                    end
+                imgui.EndChild()
+
+                imgui.AlignTextToFramePadding()
+                imgui.TextColoredRGB('Поиск игрока: '); 
+                if imgui.IsItemHovered() then imgui.BeginTooltip() imgui.TextUnformatted(u8('Введите Nick_Name или ID игрока, после нажмите ENTER.')) imgui.EndTooltip() end imgui.NextColumn()
+                imgui.SameLine(); imgui.PushItemWidth(150)
+                if imgui.InputText('##findname', findname, imgui.InputTextFlags.EnterReturnsTrue) then
+                    local find = false
+                    for k,v in ipairs(members) do
+                        if findname.v:match('%w+_%w+') then
+                            if v[2] == findname.v then
+                                check_rank.v = v[1]
+                                vzName = v[2]
+                                vzID = v[3]
+                                vzLVL = v[4]
+                                selects = k - 1
+                                sampSendChat('/id ' ..vzID)
+                                check_blacklist = true
+                                find = true
+                                break
+                            end
+                        elseif findname.v:match('%d+') then
+                            if v[3] == findname.v then
+                                check_rank.v = v[1]
+                                vzName = v[2]
+                                vzID = v[3]
+                                vzLVL = v[4]
+                                selects = k - 1
+                                sampSendChat('/id ' ..vzID)
+                                check_blacklist = true
+                                find = true
+                                break
+                            end
+                        else 
+                            sendMessage(1, '[Deputy Helper] {ffffff}Некорректно введены данные. Пример: {228fff}Dmitry_Agesilay{ffffff} или {228fff}228')
+                            find = true
+                            break
+                        end
+                    end
+                    if not find then
+                        sendMessage(1, '[Deputy Helper] {ffffff}Игрок не находится в семье или он оффлайн.')
+                    end
+                    findname.v = ''
+                end
+                imgui.SameLine()
+                if imgui.Button(fa.ICON_FA_SYNC_ALT .. u8' Обновить список',imgui.ImVec2(170,20)) then
+                    if check_time < os.time() then
+                        selects = nil
+                        sampSendChat('/fmembers')
+                        check_time = os.time() + 3
+                        sendMessage(1, '[Deputy Helper] {ffffff}Информация в таблице обновлена!')
+                    else
+                        cooldown = check_time - os.time()
+                        sendMessage(1, '[Deputy Helper] {ffffff}Не так быстро, спортсмен! Повтори попытку через {228fff}'..cooldown..'{ffffff} секунд.')
+                    end
+                end
+                imgui.SameLine()
+                if imgui.Button(fa.ICON_FA_TIMES_CIRCLE .. u8' Закрыть', imgui.ImVec2(200,20)) then
+                    if checkfmembers then
+                        imguiclose = true
+                        checkfmembers = false
+                    end
+                    selects = nil
+                    window_fmembers = false
+                    ages.v = false
+                end
+                
+            end
+            if window_offmembers then
+                if active_offmembers then
+                    imgui.Spacing()
+                    imgui.CenterTextColoredRGB((checkoffmembers and '{FF0000}' or '{D3D3D3}') .. 'Члены семьи (оффлайн)')
+                    imgui.Spacing()
+                    imgui.BeginChild('##offmembers', imgui.ImVec2(455, 275), true)
+                        imgui.Columns(4, nil, false)
+                        imgui.SetColumnWidth(-1, 160); imgui.TextColoredRGB('{228fff}Никнейм[ID]'); imgui.NextColumn()
+                        imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}Ранг'); imgui.NextColumn()
+                        imgui.SetColumnWidth(-1, 140); imgui.TextColoredRGB('{228fff}Название ранга'); imgui.NextColumn()
+                        imgui.SetColumnWidth(-1, 110); imgui.TextColoredRGB('{228fff}Последний вход'); imgui.NextColumn(); imgui.Separator()
+                        local all_offPlayer = 0
+                        for k, v in ipairs(offmembers) do
+                            if v[2] ~= nil then
+                                if imgui.Checkbox('##' ..k, imbool[k]) then
+                                    if imbool[k].v then
+                                        arr_kick[k] = v
+                                        activeCheckbox = activeCheckbox + 1
+                                    else
+                                        arr_kick[k] = nil
+                                        activeCheckbox = activeCheckbox - 1
+                                    end
+                                end
+                                local clrText = '{90EE90}'
+                                local day = v[4]:match('(%d+) дней')
+                                local numrank = v[2]
+                                if day then
+                                    if v[1] ~= 'Viktor_Agesilay' and v[1] ~= 'Dmitry_Agesilay' and v[1] ~= 'Corrado_Uchida' and v[1] ~= 'Ezio_Agesilay' then
+                                        for i = 1,8 do
+                                            local number_day = tonumber(day)
+                                            for k,v in pairs(cfg.setrank) do
+                                                if k:find('rank_' ..i) then
+                                                    number_cfg_rank = tonumber(v)
+                                                    break
+                                                end
+                                            end
+                                            if tonumber(numrank) == tonumber(i) then
+                                                if (number_cfg_rank) and (number_cfg_rank ~= 0 and (number_day >= number_cfg_rank)) then
+                                                    all_offPlayer = all_offPlayer + 1
+                                                    clrText = '{FF0000}'
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                                imgui.SameLine(); imgui.TextColoredRGB(clrText ..v[1])
+                                imgui.NextColumn()
+                                imgui.TextColoredRGB(clrText ..v[2]); imgui.NextColumn()
+                                imgui.TextColoredRGB(clrText ..v[3]); imgui.NextColumn()
+                                imgui.TextColoredRGB(clrText ..v[4]); imgui.NextColumn()
+                            end
+                        end
+                    imgui.EndChild()
+                    imgui.SameLine()
+                    imgui.BeginChild('##settingoff', imgui.ImVec2(160, 275), true)
+                        imgui.CenterTextColoredRGB('{228FFF}Настройки'); imgui.Separator(); imgui.Spacing(); imgui.Spacing()
+                        imgui.AlignTextToFramePadding(); imgui.Text('   1. '); imgui.SameLine(); imgui.PushItemWidth(100)
+                        if imgui.SliderInt('##rank_1', rank_1, 0, 60) then cfg.setrank.rank_1 = rank_1.v; inicfg.save(cfg, 'agesilay_notf.ini') end
+                        imgui.AlignTextToFramePadding(); imgui.Text('   2. '); imgui.SameLine(); 
+                        if imgui.SliderInt('##rank_2', rank_2, 0, 60) then cfg.setrank.rank_2 = rank_2.v; inicfg.save(cfg, 'agesilay_notf.ini') end
+                        imgui.AlignTextToFramePadding(); imgui.Text('   3. '); imgui.SameLine(); 
+                        if imgui.SliderInt('##rank_3', rank_3, 0, 60) then cfg.setrank.rank_3 = rank_3.v; inicfg.save(cfg, 'agesilay_notf.ini') end
+                        imgui.AlignTextToFramePadding(); imgui.Text('   4. '); imgui.SameLine(); 
+                        if imgui.SliderInt('##rank_4', rank_4, 0, 60) then cfg.setrank.rank_4 = rank_4.v; inicfg.save(cfg, 'agesilay_notf.ini') end
+                        imgui.AlignTextToFramePadding(); imgui.Text('   5. '); imgui.SameLine(); 
+                        if imgui.SliderInt('##rank_5', rank_5, 0, 60) then cfg.setrank.rank_5 = rank_5.v; inicfg.save(cfg, 'agesilay_notf.ini') end
+                        imgui.AlignTextToFramePadding(); imgui.Text('   6. '); imgui.SameLine(); 
+                        if imgui.SliderInt('##rank_6', rank_6, 0, 60) then cfg.setrank.rank_6 = rank_6.v; inicfg.save(cfg, 'agesilay_notf.ini') end
+                        imgui.AlignTextToFramePadding(); imgui.Text('   7. '); imgui.SameLine(); 
+                        if imgui.SliderInt('##rank_7', rank_7, 0, 60) then cfg.setrank.rank_7 = rank_7.v; inicfg.save(cfg, 'agesilay_notf.ini') end
+                        imgui.AlignTextToFramePadding(); imgui.Text('   8. '); imgui.SameLine(); 
+                        if imgui.SliderInt('##rank_8', rank_8, 0, 60) then cfg.setrank.rank_8 = rank_8.v; inicfg.save(cfg, 'agesilay_notf.ini') end
+                        imgui.Spacing()
+                        imgui.Separator(); imgui.Spacing(); imgui.CenterTextColoredRGB((all_offPlayer ~= 0 and '{D3D3D3}Кикнуть {FFFF00}' ..all_offPlayer.. '{D3D3D3} игроков' or '{228B22}Никого кикать не нужно'))
+                    imgui.EndChild()
+                    imgui.Spacing()
+                    if imgui.Button(u8'Кикнуть (' ..activeCheckbox..')', imgui.ImVec2(112.5,20)) then
+                        if not checkoffmembers then
+                            if activeCheckbox > 0 then
+                                imgui.OpenPopup(u8'Кикнуть')
+                            else
+                                sendMessage(1, '[Deputy Helper] {FF0000}Ошибка! {FFFFFF}Отметьте в списке людей, которых необходимо кикнуть!')
+                            end
+                        else
+                            sendMessage(1, '[Deputy Helper] {FF0000}Ошибка! {FFFFFF}Невозможно выполнить это действие, пока обновляется список!')
+                        end
+                    end
+                    imgui.SameLine()
+                    imgui.PushItemWidth(120)
+                    imgui.Text(u8'Задержка (сек.)'); imgui.SameLine()
+                    imgui.SliderInt('##wait_kick', wait_kick, 5, 20); imgui.SameLine()
+                    if imgui.Button(fa.ICON_FA_SYNC_ALT .. u8' Обновить', imgui.ImVec2(113,20)) then
+                        if not checkoffmembers then
+                            for i = 1,500 do
+                                imbool[i] = imgui.ImBool(false)
+                            end
+                            arr_kick = {}
+                            activeCheckbox = 0
+                            lua_thread.create(function()
+                                sampSendChat('/fammenu'); wait(300); sampSendClickTextdraw(2070); checkoffmembers = true; wait(600)
+                            end)
+                        else
+                            sendMessage(1, '[Deputy Helper] {FF0000}Ошибка! {FFFFFF}Невозможно выполнить это действие, пока обновляется список!')
+                        end
+                    end
+                    imgui.SameLine()
+                    if imgui.Button(fa.ICON_FA_TIMES_CIRCLE .. u8' Закрыть', imgui.ImVec2(160,20)) then
+                        for i = 1,500 do
+                            imbool[i] = imgui.ImBool(false)
+                        end
+                        arr_kick = {}
+                        activeCheckbox = 0
+                        active_offmembers = false
+                        window_offmembers = false
+                        imguiclose = true
+                        checkoffmembers = false
+                        window_fmembers = true; sampSendChat('/fmembers')
+                    end
+                    imgui.Spacing()
+                else
+                    imgui.SetCursorPosY(130)
+                    imgui.CenterTextColoredRGB('{FFFF00}Загрузка списка игроков оффлайн')
+                    imgui.NewLine()
+                    imgui.SetCursorPosX(205)
+                    if imgui.Button(fa.ICON_FA_SYNC_ALT .. u8' Перезапустить', imgui.ImVec2(110,20)) then
+                        lua_thread.create(function()
+                            sampSendChat('/fammenu'); wait(300); sampSendClickTextdraw(2070); checkoffmembers = true; wait(300)
+                        end)
+                    end
+                    imgui.SameLine()
+                    if imgui.Button(fa.ICON_FA_TIMES_CIRCLE .. u8' Закрыть', imgui.ImVec2(100,20)) then
+                        for i = 1,500 do
+                            imbool[i] = imgui.ImBool(false)
+                        end
+                        arr_kick = {}
+                        activeCheckbox = 0
+                        if checkoffmembers then
+                            imguiclose = true
+                            checkoffmembers = false
+                        end
+                        active_offmembers = false
+                        window_offmembers = false
+                        window_fmembers = true; sampSendChat('/fmembers')
+                    end
+                end
+
+                if imgui.BeginPopupModal(u8'Кикнуть' , _, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar +  imgui.WindowFlags.AlwaysAutoResize) then
+                    imgui.CenterTextColoredRGB('{FF0000}Внимание!')
+                    imgui.CenterTextColoredRGB('Вы собираетесь кикнуть следующих игроков:')
+                    imgui.BeginChild('##offmembers1', imgui.ImVec2(405, 260), true)
+                        imgui.Columns(4, nil, false)
+                        imgui.SetColumnWidth(-1, 130); imgui.TextColoredRGB('{228fff}Никнейм[ID]'); imgui.NextColumn()
+                        imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}Ранг'); imgui.NextColumn()
+                        imgui.SetColumnWidth(-1, 120); imgui.TextColoredRGB('{228fff}Название ранга'); imgui.NextColumn()
+                        imgui.SetColumnWidth(-1, 110); imgui.TextColoredRGB('{228fff}Последний вход'); imgui.NextColumn(); imgui.Separator()
+                        for k,v in pairs(arr_kick) do
+                            if v[1] ~= nil then
+                                imgui.TextColoredRGB(v[1]); imgui.NextColumn()
+                                imgui.TextColoredRGB(v[2]); imgui.NextColumn()
+                                imgui.TextColoredRGB(v[3]); imgui.NextColumn()
+                                imgui.TextColoredRGB(v[4]); imgui.NextColumn(); imgui.Separator()
+                            end
+                        end
+                    imgui.EndChild()
+                    if imgui.Button(fa.ICON_FA_TIRED .. u8' Продолжить', imgui.ImVec2(200,30)) then
+                        active_offmembers = false
+                        window_offmembers = false
+                        for i = 1,500 do
+                            imbool[i] = imgui.ImBool(false)
+                        end
+                        active_kickOffPlayer = true
+                        offkickplayer:run()
+                        imgui.CloseCurrentPopup()
+                        ages.v = false
+                    end
+                    imgui.SameLine()
+                    if imgui.Button(fa.ICON_FA_TIMES_CIRCLE ..u8' Отмена', imgui.ImVec2(200,30)) then
+                        for i = 1,500 do
+                            imbool[i] = imgui.ImBool(false)
+                        end
+                        arr_kick = {}
+                        activeCheckbox = 0
+                        imgui.CloseCurrentPopup()
+                    end
+                    imgui.EndPopup()
+                end
+            end
+            if window_famchat then
+                imgui.BeginChild('##famchat', imgui.ImVec2(860, 305), true)
+                    for k,v in ipairs(famchat) do
+                        active_msgfamchat = true
+                        imgui.TextColoredRGB(v)
+                        imgui.SetScrollHere()
+                    end
+                    if not active_msgfamchat then
+                        imgui.SetCursorPosY(130)
+                        imgui.CenterTextColoredRGB('{228FFF}Здесь будут отображаться все сообщения из семейного чата.')
+                    end
+                imgui.EndChild()
+                imgui.PushItemWidth(735)
+                if imgui.InputText('##famchat_enter', famchat_enter, imgui.InputTextFlags.EnterReturnsTrue) then
+                    if famchat_enter.v ~= '' then
+                        local msg_famchat = u8:decode(famchat_enter.v)
+                        if tonumber(#msg_famchat) <= 83 then
+                            sampSendChat('/fam ' ..msg_famchat)
+                            famchat_enter.v = ''
+                        else
+                            sendMessage(1, '[Deputy Helper] {FF0000}Ошибка! {FFFFFF}Слишком длинное сообщение.')
+                        end
+                    else
+                        sendMessage(1, '[Deputy Helper] {FF0000}Ошибка! {FFFFFF}Введите сообщение.')
+                    end
+                end
+                imgui.SameLine()
+                if imgui.Button(fa.ICON_FA_TIMES_CIRCLE .. u8' Закрыть', imgui.ImVec2(120,20)) then
+                    windowSizeX = 622
+                    window_famchat = false
+                    window_fmembers = true; sampSendChat('/fmembers')
+                end
+            end
+            if window_setting then
+                if window_fmembers then
+                    window_fmembers = false
+                end
+                if imgui.CollapsingHeader(u8'Уведомления') then
+                    imgui.TextColoredRGB('{228B22}Настройки для отправителя')
+                    imgui.Separator()
+                    imgui.Text(u8'Куда присылать уведомления?')
+                    if imgui.RadioButton(u8'ВКонтакте',choise_socnetwork, 1) then
+                        cfg.config.socnetwork = choise_socnetwork.v
+                        inicfg.save(cfg, 'agesilay_notf.ini')
+                    end
+                    imgui.SameLine()
+                    if imgui.RadioButton(u8'Telegram',choise_socnetwork, 2) then
+                        cfg.config.socnetwork = choise_socnetwork.v
+                        inicfg.save(cfg, 'agesilay_notf.ini')
+                    end
+                    imgui.PushItemWidth(300)
+                    if imgui.InputText(u8(choise_socnetwork.v == 1 and 'VK ID' or 'Chat ID'), (choise_socnetwork.v == 1 and user_id or chat_id)) then
+                        if choise_socnetwork.v == 1 then 
+                            cfg.config.user_id = user_id.v
+                        else
+                            cfg.config.chat_id = chat_id.v
+                        end
+                        inicfg.save(cfg, 'agesilay_notf.ini') 
+                    end
+                    if imgui.Checkbox(u8'Я из Украины', Ukraine) then cfg.config.ukraine = Ukraine.v; inicfg.save(cfg, 'agesilay_notf.ini') end
+                    imgui.Spacing()
+                    imgui.TextColoredRGB('{228FFF}Настройки для получателя')
+                    imgui.Separator()
+                    imgui.TextColoredRGB((cfg.config.ukraine and 'Chat ID от Telegram' or 'VK ID от ВКонтакте')..' лидера семьи')
+                    if imgui.InputText('##leader_id', (cfg.config.ukraine and leader_tg_id or leader_vk_id)) then
+                        if cfg.config.ukraine then
+                            cfg.config.leader_tg_id = leader_tg_id.v
+                        else
+                            cfg.config.leader_vk_id = leader_vk_id.v
+                        end
+                        inicfg.save(cfg, 'agesilay_notf.ini')
+                    end
+                    imgui.TextColoredRGB('Token ВКонтакте')
+                    if imgui.InputText('##token_vk', token_vk, show_token_vk.v and 0 or imgui.InputTextFlags.Password) then
+                        cfg.config.token_vk = token_vk.v
+                        inicfg.save(cfg, 'agesilay_notf.ini')
+                    end
+                    imgui.SameLine(); imgui.Checkbox('##show_token_vk', show_token_vk)
+                    imgui.TextColoredRGB('Token Telegram')
+                    if imgui.InputText('##token_tg', token_tg, show_token_tg.v and 0 or imgui.InputTextFlags.Password) then
+                        cfg.config.token_tg = token_tg.v
+                        inicfg.save(cfg, 'agesilay_notf.ini')
+                    end
+                    imgui.SameLine(); imgui.Checkbox('##show_token_tg', show_token_tg)
+
+                    if imgui.Button(u8'Отправить тестовое сообщение', imgui.ImVec2(200,20)) then
+                        local _, pID = sampGetPlayerIdByCharHandle(playerPed)
+                        local name = sampGetPlayerNickname(pID)
+                        local testmessage = name.. '[' ..pID.. '] вызвал тестовое сообщение.'
+                        local msg_responde = (choise_socnetwork.v == 1 and user_id.v or chat_id.v)
+                        if msg_responde ~= '' then
+                            sampAddChatMessage('[Отправлено в ' ..(choise_socnetwork.v == 1 and 'ВКонтакте' or 'Telegram').. ']: {ffffff}' ..testmessage, 0x228fff)
+                        else
+                            sampAddChatMessage('[Тестовое сообщение]: {ffffff}' ..testmessage, 0x228fff)
+                        end
+                        lua_thread.create(function()
+                            tmsg = true
+                            sendMessageLeader(testmessage.. '\n[ ' ..thisScript().version.. ' ] Принял: ' ..invite.. ', квесты: ' ..quest.. '.\n#testmessage')
+                            wait(500)
+                            SendMessageDeputy(testmessage)
+                        end)
+                    end
+
+                end
+                if imgui.CollapsingHeader(u8'Настройки чата') then
+                    if imgui.ColorEdit4(u8'Цвет чата семьи', colorFAMchat, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoAlpha) then
+                        local clr = imgui.ImColor.FromFloat4(colorFAMchat.v[1], colorFAMchat.v[2], colorFAMchat.v[3], colorFAMchat.v[4]):GetU32()
+                        cfg.config.colorFAMchat = clr
+                        inicfg.save(cfg, 'agesilay_notf.ini')
+                    end
+                    imgui.SameLine()
+                    if imgui.Button(u8("Тест##FAMCol"), imgui.ImVec2(50, 20)) then
+                        local r, g, b, a = imgui.ImColor(cfg.config.colorFAMchat):GetRGBA()
+                        sampAddChatMessage('[Семья] [9] Legatus Legionis | '..nickname..'['..id_deputy..']: {B9C1B8}(( Это сообщение видите только вы! ))', join_rgb(r, g, b))
+                    end
+                    imgui.SameLine()
+                    if imgui.Button(u8("Стандартный##FAMcol"), imgui.ImVec2(90, 20)) then
+                        cfg.config.colorFAMchat = 1190680180
+                        if inicfg.save(cfg, 'agesilay_notf.ini') then 
+                            sendMessage(1, '[Deputy Helper] {FFFFFF}Стандартный цвет чата семьи восстановлен!')
+                            colorFAMchat = imgui.ImFloat4(imgui.ImColor(cfg.config.colorFAMchat):GetFloat4())
+                        end
+                    end
+                    if imgui.ColorEdit4(u8'Цвет чата альянса', colorALchat, imgui.ColorEditFlags.NoInputs + imgui.ColorEditFlags.NoAlpha) then
+                        local clr = imgui.ImColor.FromFloat4(colorALchat.v[1], colorALchat.v[2], colorALchat.v[3], colorALchat.v[4]):GetU32()
+                        cfg.config.colorALchat = clr
+                        inicfg.save(cfg, 'agesilay_notf.ini')
+                    end
+                    imgui.SameLine()
+                    if imgui.Button(u8("Тест##AlCol"), imgui.ImVec2(50, 20)) then
+                        local r, g, b, a = imgui.ImColor(cfg.config.colorALchat):GetRGBA()
+                        sampAddChatMessage('[Альянс Agesilay] [9] Legatus Legionis | '..nickname..'['..id_deputy..']: {b9c1b8}(( Это сообщение видите только вы! ))', join_rgb(r, g, b))
+                    end
+                    imgui.SameLine()
+                    if imgui.Button(u8("Стандартный##Alcol"), imgui.ImVec2(90, 20)) then
+                        cfg.config.colorALchat = 1186513337
+                        if inicfg.save(cfg, 'agesilay_notf.ini') then 
+                            sendMessage(1, '[Deputy Helper] {FFFFFF}Стандартный цвет чата альянса восстановлен!')
+                            colorALchat = imgui.ImFloat4(imgui.ImColor(cfg.config.colorALchat):GetFloat4())
+                        end
+                    end
+                end
+                if imgui.CollapsingHeader(u8'Дополнительные настройки') then
+                    imgui.Text(u8'Приветствие после инвайта')
+                    if imgui.InputText('##text_invite', text_invite) then
+                        cfg.config.text_invite = u8:decode(text_invite.v)
+                        inicfg.save(cfg, 'agesilay_notf.ini')
+                    end
+                    imgui.Separator()
+                    imgui.Text(u8'Меню скрипта (Написать необходимо без знака /)')
+                    if imgui.InputText('##cmd', cmd) then
+                        cfg.config.cmd = cmd.v
+                        inicfg.save(cfg, 'agesilay_notf.ini')
+                    end
+                    imgui.Separator()
+                    if imgui.Checkbox(u8'Оверлей (статистика в отдельном окне)', overlay) then cfg.config.overlay = overlay.v; inicfg.save(cfg, 'agesilay_notf.ini') end
+                end
+                if imgui.Button(fa.ICON_FA_CASH_REGISTER .. u8' Оплата фам.налога', imgui.ImVec2(160,20)) then sampSendChat('/fammenu'); sampSendClickTextdraw(2073); nalog = true end
+                if imgui.Button(fa.ICON_FA_SYNC_ALT .. u8' Перезапустить', imgui.ImVec2(160,20)) then imgui.Process = false; thisScript():reload() end
+                
+            end
+            imgui.EndChild()
         imgui.End()
     end
 
     if (overlay.v) then
-        if ages.v or fmembers.v or offmembers.v then imgui.ShowCursor = true end
+        if ages.v then imgui.ShowCursor = true end
         imgui.SetNextWindowPos(imgui.ImVec2((cfg.config.overlay_pos_x),(cfg.config.overlay_pos_y)), imgui.Cond.FirstUseEver)
-        imgui.Begin('##begin_overlay', overlay, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.AlwaysAutoResize)
+        imgui.Begin('##overlay', overlay, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.AlwaysAutoResize)
 
         imgui.TextColoredRGB('{ca03fc}Статистика за сегодня:')
         imgui.Separator()
@@ -782,452 +1552,10 @@ function imgui.OnDrawFrame()
                 
             end
         end
-        
-        imgui.End()
-    end
-
-    if (fmembers.v) then
-        ScreenX, ScreenY = getScreenResolution()
-        imgui.SetNextWindowPos(imgui.ImVec2(ScreenX / 2 , ScreenY / 2), imgui.Cond.FirsUseEver, imgui.ImVec2(0.5, 0.5))
-        imgui.Begin('##begin_fmembers', fmembers,  imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoBringToFrontOnFocus + imgui.WindowFlags.NoSavedSettings + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.AlwaysAutoResize)
-        imgui.Spacing()
-        imgui.CenterTextColoredRGB('Онлайн семьи: ' ..(checkfmembers and '{FF0000}' or '{FFFF00}').. online)
-        imgui.CenterTextColoredRGB('Игроков с VIP | без VIP аккаунта: {00FF00}' .. vip .. ' {ffffff}| {FF0000}' ..novip)
-        imgui.Spacing()
-        imgui.BeginChild('##members', imgui.ImVec2(415, 260), true, imgui.WindowFlags.NoScrollbar)
-            imgui.Columns(6, nil, false)
-            imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}Ранг'); imgui.NextColumn()
-            imgui.SetColumnWidth (-1, 170); imgui.TextColoredRGB('{228fff}Никнейм[ID]'); imgui.NextColumn()
-            imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}LVL'); imgui.NextColumn()
-            imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}AFK'); imgui.NextColumn()
-            imgui.SetColumnWidth(-1, 80); imgui.TextColoredRGB('{228fff}ВИП'); imgui.NextColumn()
-            imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}Квест'); imgui.NextColumn(); imgui.Separator()
-            for k, v in ipairs(members) do
-                if v[1] ~= nil then
-                    if imgui.Selectable(v[1].. '##' ..k - 1, selects == k - 1, 6) then
-                        check_rank.v = v[1]
-                        vzID = v[3]
-                        vzName = v[2]
-                        vzLVL = v[4]
-                        selects = k - 1
-                        sampSendChat('/id ' ..vzID)
-                        check_blacklist = true
-                    end
-                    imgui.NextColumn()
-                    local hexPlayerColor = string.format('{%0.6x}', bit.band(sampGetPlayerColor(v[3]),0xffffff))
-                    imgui.TextColoredRGB(hexPlayerColor .. tostring(v[2]..'['..v[3]..']')); imgui.NextColumn()
-                    imgui.Text(tostring(v[4])); imgui.NextColumn()
-                        local arrayColor_afk = {'{ffffff}', '{FFA07A}', '{FA8072}', '{CD5C5C}'}
-                    if tonumber(v[5]) == 0 then
-                        color_afk = arrayColor_afk[1]
-                    elseif tonumber(v[5]) <= 300 then
-                        color_afk = arrayColor_afk[2]
-                    elseif tonumber(v[5]) <= 1000 then
-                        color_afk = arrayColor_afk[3]
-                    elseif tonumber(v[5]) > 1000 then
-                        color_afk = arrayColor_afk[4]
-                    end
-                    imgui.TextColoredRGB(tostring(color_afk .. v[5])); imgui.NextColumn()
-                    imgui.TextColoredRGB(tostring(strVips:find(v[2]) and '{00FF00}Имеется' or '{FF0000}Не имеется')); imgui.NextColumn()
-                    for i = 1, 8 do
-                        local ia = i-1
-                        local color_quest = {'{FF0000}', '{B22222}', '{DC143C}', '{EEE8AA}', '{F0E68C}', '{FFD700}', '{ADFF2F}', '{00FF00}'}
-                        if tonumber(v[6]) == ia then
-                            imgui.TextColoredRGB(color_quest[i] .. tostring(v[6]) .. '/8')
-                        end
-                    end; imgui.NextColumn(); imgui.Separator()
-                end
-            end
-        imgui.EndChild()
-        imgui.SameLine()
-        imgui.BeginChild('##infoplayer', imgui.ImVec2(200, 260), true)
-            if selects then
-                local hexPlayerColor = string.format('{%0.6x}', bit.band(sampGetPlayerColor(vzID),0xffffff))
-                imgui.CenterTextColoredRGB('{228fff}Информация об игроке')
-                imgui.BeginChild('##information', imgui.ImVec2(190,90), true)
-                    imgui.Columns(2)
-                    imgui.SetColumnWidth(-1, 60); imgui.TextColoredRGB('{FFFF00}Никнейм'); imgui.NextColumn()
-                    imgui.SetColumnWidth(-1, 150); imgui.Text(vzName); imgui.NextColumn()
-                    imgui.Separator()
-                    imgui.TextColoredRGB('{FFFF00}Фракция'); imgui.NextColumn()
-                    imgui.TextColoredRGB(hexPlayerColor .. sampGetPlayerOrganisation(vzID)); imgui.NextColumn()
-                    imgui.Separator()
-                    imgui.TextColoredRGB('{FFFF00}UID|PING'); imgui.NextColumn() 
-                    imgui.TextColoredRGB((info_blacklist or 'None') .. '{ffffff} | ' ..tostring(sampGetPlayerPing(vzID))); imgui.NextColumn()
-                    imgui.Separator()
-                    imgui.TextColoredRGB('{FFFF00}Platform'); imgui.NextColumn()
-                    imgui.TextColoredRGB((info_platform or 'None')); imgui.NextColumn()
-                imgui.EndChild()
-                for i = 1, 10 do
-                    if imgui.RadioButton(i.. '##' ..i, check_rank, i) then
-                        sampSendChat('/setfrank '..vzID..' '..check_rank.v)
-                        sampSendChat('/fmembers')
-                    end
-                    if i ~= 5 and i ~= 10 then imgui.SameLine() end
-                end
-                if imgui.Button(u8'Выдать мут',imgui.ImVec2(190,20)) then
-                    imgui.OpenPopup(u8'Выбор мута')
-                end
-                if imgui.Button(u8'Снять мут',imgui.ImVec2(190,20)) then
-                    sampSendChat('/famunmute '..vzID)
-                end
-                if imgui.Button(u8'Выгнать из семьи',imgui.ImVec2(190,20)) then
-                    imgui.OpenPopup(u8'Выбор увольнения')
-                end
-                if imgui.Button(u8'Скопировать ник',imgui.ImVec2(190,20)) then
-                    setClipboardText(vzName) 
-                    sendMessage(1, '[Deputy Helper] {FFFFFF}Ник игрока {228fff}'.. vzName ..'['..vzID..']{ffffff} скопирован в буфер обмена.')
-                    addOneOffSound(0.0, 0.0, 0.0, 1054)
-                end
-
-                if imgui.BeginPopupModal(u8'Выбор увольнения', _, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar +  imgui.WindowFlags.AlwaysAutoResize) then
-                    imgui.CenterTextColoredRGB('{228fff}Выберите причину увольнения')
-                    imgui.Spacing()
-                    imgui.BeginChild('##choise_mute', imgui.ImVec2(200,100), true)
-                        for k,v in pairs({
-                            'Оскорбление', 'Упоминание родных', 'Пропаганда', 'Неадекват' 
-                        }) do
-                            if imgui.Button(u8(v), imgui.ImVec2(192,20)) then
-                                local vzUID = info_blacklist:gsub('{......}','')
-                                sampSendChat('/famuninvite ' ..vzID.. ' ' ..v.. ' (UID: ' ..vzUID.. ')')
-                                selects = nil
-                                imgui.CloseCurrentPopup()
-                            end
-                        end
-                    imgui.EndChild()
-                    imgui.Spacing()
-                    if imgui.Button(u8'Ввести свою причину',imgui.ImVec2(200,20)) then
-                        unvpopup = true
-                        imgui.CloseCurrentPopup()
-                    end
-                    if imgui.Button(u8'Отмена',imgui.ImVec2(200,20)) then
-                        imgui.CloseCurrentPopup()
-                    end
-                    imgui.EndPopup()
-                end
-
-                if imgui.BeginPopupModal(u8'Выбор мута', _, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar +  imgui.WindowFlags.AlwaysAutoResize) then
-                    imgui.CenterTextColoredRGB('{228fff}Выберите причину мута')
-                    imgui.Spacing()
-                    imgui.BeginChild('##choise_mute', imgui.ImVec2(200,197), true)
-                        for k,v in pairs({
-                            ['Флуд'] = 10,
-                            ['Капс'] = 10,
-                            ['Нерациональное исп.симв.'] = 10,
-                            ['Промежуток рекламы 3 мин.'] = 30,
-                            ['Оскорбление'] = 60,
-                            ['Неадекват'] = 100,
-                            ['Провокация конфликта'] = 30,
-                            ['Сторонняя реклама'] = 60,
-                        }) do
-                            if imgui.Button(u8(k), imgui.ImVec2(192,20)) then
-                                sampSendChat('/fammute ' ..vzID.. ' ' ..v.. ' ' ..k)
-                                imgui.CloseCurrentPopup()
-                            end
-                        end
-                    imgui.EndChild()
-                    imgui.Spacing()
-                    if imgui.Button(u8'Ввести свою причину',imgui.ImVec2(200,20)) then
-                        mutepopup = true
-                        imgui.CloseCurrentPopup()
-                    end
-                    if imgui.Button(u8'Отмена',imgui.ImVec2(200,20)) then
-                        imgui.CloseCurrentPopup()
-                    end
-                    imgui.EndPopup()
-                end
-
-                if mutepopup then imgui.OpenPopup(u8'Мут'); mutepopup = false end
-                if unvpopup then imgui.OpenPopup(u8'Уволить'); unvpopup = false end
-
-                if imgui.BeginPopupModal(u8'Мут', _, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar +  imgui.WindowFlags.AlwaysAutoResize) then
-                    imgui.SameLine(70)
-                    imgui.TextDisabled(u8'Введите причину мута и время')
-                    imgui.PushItemWidth(240)
-                    if imgui.InputText(u8'##123', setmute, imgui.InputTextFlags.EnterReturnsTrue) then
-                        if setmute.v ~= '' and setmute.v ~= nil and settime.v ~= '' and settime.v ~= nil then
-                            sampSendChat('/fammute '..vzID..' '..settime.v.. ' ' ..u8:decode(setmute.v))
-                            setmute.v = ''
-                            settime.v = ''
-                            imgui.CloseCurrentPopup()
-                        else
-                            sendMessage(1, '[Deputy Helper] {FFFFFF}Заполните все поля или закройте выдачу мута!')
-                        end
-                    end
-                    imgui.SameLine()
-                    imgui.PushItemWidth(50)
-                    if imgui.InputText(u8'##12333', settime, imgui.InputTextFlags.EnterReturnsTrue) then
-                        if setmute.v ~= '' and setmute.v ~= nil and settime.v ~= '' and settime.v ~= nil then
-                            sampSendChat('/fammute '..vzID..' '..settime.v.. ' ' ..u8:decode(setmute.v))
-                            setmute.v = ''
-                            settime.v = ''
-                            imgui.CloseCurrentPopup()
-                        else
-                            sendMessage(1, '[Deputy Helper] {FFFFFF}Заполните все поля или закройте выдачу мута!')
-                        end
-                    end
-                    imgui.NewLine()
-                    if imgui.Button(u8'Выдать мут',imgui.ImVec2(300,25)) then
-                        if setmute.v ~= '' and setmute.v ~= nil and settime.v ~= '' and settime.v ~= nil then
-                            sampSendChat('/fammute '..vzID..' '..settime.v.. ' ' ..u8:decode(setmute.v))
-                            setmute.v = ''
-                            settime.v = ''
-                            imgui.CloseCurrentPopup()
-                        else
-                            sendMessage(1, '[Deputy Helper] {FFFFFF}Заполните все поля или закройте выдачу мута!')
-                        end
-                    end
-                    if imgui.Button(u8'Отмена',imgui.ImVec2(300,25)) then
-                        imgui.CloseCurrentPopup()
-                    end
-                    imgui.EndPopup()
-                end
-                
-                if imgui.BeginPopupModal(u8'Уволить', _, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar +  imgui.WindowFlags.AlwaysAutoResize) then
-                    imgui.SameLine(80)
-                    imgui.TextDisabled(u8'Введите причину увольнения')
-                    imgui.PushItemWidth(300)
-                    if imgui.InputText(u8'##123', uninvite, imgui.InputTextFlags.EnterReturnsTrue) then
-                        if uninvite.v ~= '' and uninvite.v ~= nil then
-                            local vzUID = info_blacklist:gsub('{......}','')
-                            sampSendChat('/famuninvite '..vzID..' '..u8:decode(uninvite.v).. ' (UID: ' ..vzUID.. ')')
-                            uninvite.v = ''
-                            selects = nil
-                            imgui.CloseCurrentPopup()
-                        else
-                            sendMessage(1, '[Deputy Helper] {FFFFFF}Введите причину увольнения!')
-                        end
-                    end
-                    imgui.NewLine()
-                    if imgui.Button(u8'Уволить',imgui.ImVec2(300,25)) then
-                        if uninvite.v ~= '' and uninvite.v ~= nil then
-                            local vzUID = info_blacklist:gsub('{......}','')
-                            sampSendChat('/famuninvite '..vzID..' '..u8:decode(uninvite.v).. ' (UID: ' ..vzUID.. ')')
-                            uninvite.v = ''
-                            selects = nil
-                            imgui.CloseCurrentPopup()
-                        else
-                            sendMessage(1, '[Deputy Helper] {FFFFFF}Введите причину увольнения!')
-                        end
-                    end
-                    if imgui.Button(u8'Отмена',imgui.ImVec2(300,25)) then
-                        imgui.CloseCurrentPopup()
-                    end
-                    imgui.EndPopup()
-                end
-            else
-                imgui.SetCursorPosY(110)
-                imgui.CenterTextColoredRGB('{808080}Выберите игрока из списка.')
-            end
-        imgui.EndChild()
-
-        imgui.AlignTextToFramePadding()
-        imgui.TextColoredRGB('Поиск игрока: '); 
-        if imgui.IsItemHovered() then imgui.BeginTooltip() imgui.TextUnformatted(u8('Введите Nick_Name или ID игрока, после нажмите ENTER.')) imgui.EndTooltip() end imgui.NextColumn()
-        imgui.SameLine(); imgui.PushItemWidth(150)
-        if imgui.InputText('##findname', findname, imgui.InputTextFlags.EnterReturnsTrue) then
-            local find = false
-            for k,v in ipairs(members) do
-                if findname.v:match('%w+_%w+') then
-                    if v[2] == findname.v then
-                        check_rank.v = v[1]
-                        vzName = v[2]
-                        vzID = v[3]
-                        vzLVL = v[4]
-                        selects = k - 1
-                        sampSendChat('/id ' ..vzID)
-                        check_blacklist = true
-                        find = true
-                        break
-                    end
-                elseif findname.v:match('%d+') then
-                    if v[3] == findname.v then
-                        check_rank.v = v[1]
-                        vzName = v[2]
-                        vzID = v[3]
-                        vzLVL = v[4]
-                        selects = k - 1
-                        sampSendChat('/id ' ..vzID)
-                        check_blacklist = true
-                        find = true
-                        break
-                    end
-                else 
-                    sendMessage(1, '[Deputy Helper] {ffffff}Некорректно введены данные. Пример: {228fff}Dmitry_Agesilay{ffffff} или {228fff}228')
-                    find = true
-                    break
-                end
-            end
-            if not find then
-                sendMessage(1, '[Deputy Helper] {ffffff}Игрок не находится в семье или он оффлайн.')
-            end
-            findname.v = ''
+        if cursorEnabled then
+            showCursor(false)
+            cursorEnabled = false
         end
-        imgui.SameLine()
-        if imgui.Button(u8'Обновить список',imgui.ImVec2(170,20)) then
-            if check_time < os.time() then
-                selects = nil
-                sampSendChat('/fmembers')
-                check_time = os.time() + 3
-                sendMessage(1, '[Deputy Helper] {ffffff}Информация в таблице обновлена!')
-            else
-                cooldown = check_time - os.time()
-                sendMessage(1, '[Deputy Helper] {ffffff}Не так быстро, спортсмен! Повтори попытку через {228fff}'..cooldown..'{ffffff} секунд.')
-            end
-        end
-        imgui.SameLine()
-        if imgui.Button(u8'Закрыть',imgui.ImVec2(200,20)) then
-            fmembers.v = false; selects = nil
-        end
-        imgui.End()
-    end
-    if (offmembers.v) then
-        imgui.SetNextWindowPos(imgui.ImVec2(sw / 2 , sh / 2), imgui.Cond.FirsUseEver, imgui.ImVec2(0.5, 0.5))
-        imgui.Begin('##begin_fmembers', offmembers,  imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoBringToFrontOnFocus + imgui.WindowFlags.NoSavedSettings + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.AlwaysAutoResize)
-        imgui.Spacing()
-        imgui.CenterTextColoredRGB((checkoffmembers and '{FF0000}' or '{D3D3D3}') .. 'Члены семьи (оффлайн)')
-        imgui.Spacing()
-        imgui.BeginChild('##offmembers', imgui.ImVec2(455, 260), true)
-            imgui.Columns(4, nil, false)
-            imgui.SetColumnWidth(-1, 160); imgui.TextColoredRGB('{228fff}Никнейм[ID]'); imgui.NextColumn()
-            imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}Ранг'); imgui.NextColumn()
-            imgui.SetColumnWidth(-1, 140); imgui.TextColoredRGB('{228fff}Название ранга'); imgui.NextColumn()
-            imgui.SetColumnWidth(-1, 110); imgui.TextColoredRGB('{228fff}Последний вход'); imgui.NextColumn(); imgui.Separator()
-            local all_offPlayer = 0
-            for k, v in ipairs(offmembers) do
-                if v[2] ~= nil then
-                    if imgui.Checkbox('##' ..k, imbool[k]) then
-                        if imbool[k].v then
-                            arr_kick[k] = v
-                            activeCheckbox = activeCheckbox + 1
-                        else
-                            arr_kick[k] = nil
-                            activeCheckbox = activeCheckbox - 1
-                        end
-                    end
-                    local clrText = '{90EE90}'
-                    local day = v[4]:match('(%d+) дней')
-                    local numrank = v[2]
-                    if day then
-                        if v[1] ~= 'Viktor_Agesilay' and v[1] ~= 'Dmitry_Agesilay' and v[1] ~= 'Corrado_Uchida' and v[1] ~= 'Ezio_Agesilay' then
-                            for i = 1,8 do
-                                local number_day = tonumber(day)
-                                for k,v in pairs(cfg.setrank) do
-                                    if k:find('rank_' ..i) then
-                                        number_cfg_rank = tonumber(v)
-                                        break
-                                    end
-                                end
-                                if tonumber(numrank) == tonumber(i) then
-                                    if number_cfg_rank ~= 0 and (number_day >= number_cfg_rank) then
-                                        all_offPlayer = all_offPlayer + 1
-                                        clrText = '{FF0000}'
-                                    end
-                                end
-                            end
-                        end
-                    end
-                    imgui.SameLine(); imgui.TextColoredRGB(clrText ..v[1])
-                    imgui.NextColumn()
-                    imgui.TextColoredRGB(clrText ..v[2]); imgui.NextColumn()
-                    imgui.TextColoredRGB(clrText ..v[3]); imgui.NextColumn()
-                    imgui.TextColoredRGB(clrText ..v[4]); imgui.NextColumn()
-                end
-            end
-        imgui.EndChild()
-        imgui.SameLine()
-        imgui.BeginChild('##settingoff', imgui.ImVec2(200, 260), true)
-            imgui.CenterTextColoredRGB('{228FFF}Настройки'); imgui.Separator(); imgui.Spacing()
-            imgui.AlignTextToFramePadding(); imgui.Text(u8'1 ранг'); imgui.SameLine(); imgui.PushItemWidth(100)
-            if imgui.SliderInt(u8('дней') .. '##rank_1', rank_1, 0, 60) then cfg.setrank.rank_1 = rank_1.v; inicfg.save(cfg, 'fam_helper.ini') end
-            imgui.AlignTextToFramePadding(); imgui.Text(u8'2 ранг'); imgui.SameLine(); 
-            if imgui.SliderInt(u8('дней') .. '##rank_2', rank_2, 0, 60) then cfg.setrank.rank_2 = rank_2.v; inicfg.save(cfg, 'fam_helper.ini') end
-            imgui.AlignTextToFramePadding(); imgui.Text(u8'3 ранг'); imgui.SameLine(); 
-            if imgui.SliderInt(u8('дней') .. '##rank_3', rank_3, 0, 60) then cfg.setrank.rank_3 = rank_3.v; inicfg.save(cfg, 'fam_helper.ini') end
-            imgui.AlignTextToFramePadding(); imgui.Text(u8'4 ранг'); imgui.SameLine(); 
-            if imgui.SliderInt(u8('дней') .. '##rank_4', rank_4, 0, 60) then cfg.setrank.rank_4 = rank_4.v; inicfg.save(cfg, 'fam_helper.ini') end
-            imgui.AlignTextToFramePadding(); imgui.Text(u8'5 ранг'); imgui.SameLine(); 
-            if imgui.SliderInt(u8('дней') .. '##rank_5', rank_5, 0, 60) then cfg.setrank.rank_5 = rank_5.v; inicfg.save(cfg, 'fam_helper.ini') end
-            imgui.AlignTextToFramePadding(); imgui.Text(u8'6 ранг'); imgui.SameLine(); 
-            if imgui.SliderInt(u8('дней') .. '##rank_6', rank_6, 0, 60) then cfg.setrank.rank_6 = rank_6.v; inicfg.save(cfg, 'fam_helper.ini') end
-            imgui.AlignTextToFramePadding(); imgui.Text(u8'7 ранг'); imgui.SameLine(); 
-            if imgui.SliderInt(u8('дней') .. '##rank_7', rank_7, 0, 60) then cfg.setrank.rank_7 = rank_7.v; inicfg.save(cfg, 'fam_helper.ini') end
-            imgui.AlignTextToFramePadding(); imgui.Text(u8'8 ранг'); imgui.SameLine(); 
-            if imgui.SliderInt(u8('дней') .. '##rank_8', rank_8, 0, 60) then cfg.setrank.rank_8 = rank_8.v; inicfg.save(cfg, 'fam_helper.ini') end
-            imgui.Separator(); imgui.Spacing(); imgui.CenterTextColoredRGB((all_offPlayer ~= 0 and '{D3D3D3}Можно кикнуть {FFFF00}' ..all_offPlayer.. '{D3D3D3} игроков' or '{228B22}Никого кикать не нужно'))
-        imgui.EndChild()
-        imgui.Spacing()
-        if imgui.Button(u8'Кикнуть (' ..activeCheckbox..')', imgui.ImVec2(112.5,20)) then
-            if not checkoffmembers then
-                if activeCheckbox > 0 then
-                    imgui.OpenPopup(u8'Кикнуть')
-                else
-                    sendMessage(1, '[Deputy Helper] {FF0000}Ошибка! {FFFFFF}Отметьте в списке людей, которых необходимо кикнуть!')
-                end
-            else
-                sendMessage(1, '[Deputy Helper] {FF0000}Ошибка! {FFFFFF}Невозможно выполнить это действие, пока обновляется список!')
-            end
-        end
-        imgui.SameLine()
-        imgui.PushItemWidth(120)
-        imgui.Text(u8'Задержка (сек.)'); imgui.SameLine()
-        imgui.SliderInt('##wait_kick', wait_kick, 10, 20); imgui.SameLine()
-        if imgui.Button(u8'Обновить', imgui.ImVec2(113,20)) then
-            if not checkoffmembers then
-                lua_thread.create(function()
-                    sampSendChat('/fammenu'); wait(100); sampSendClickTextdraw(2070); checkoffmembers = true
-                end)
-            else
-                sendMessage(1, '[Deputy Helper] {FF0000}Ошибка! {FFFFFF}Невозможно выполнить это действие, пока обновляется список!')
-            end
-        end
-        imgui.SameLine()
-        if imgui.Button(u8'Закрыть', imgui.ImVec2(200,20)) then
-            imguiclose = true
-            checkoffmembers = false
-            offmembers.v = false
-        end
-        imgui.Spacing()
-
-        if imgui.BeginPopupModal(u8'Кикнуть' , _, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove + imgui.WindowFlags.NoTitleBar +  imgui.WindowFlags.AlwaysAutoResize) then
-            imgui.CenterTextColoredRGB('{FF0000}Внимание!')
-            imgui.CenterTextColoredRGB('Вы собираетесь кикнуть следующих игроков:')
-            imgui.BeginChild('##offmembers1', imgui.ImVec2(405, 260), true)
-                imgui.Columns(4, nil, false)
-                imgui.SetColumnWidth(-1, 130); imgui.TextColoredRGB('{228fff}Никнейм[ID]'); imgui.NextColumn()
-                imgui.SetColumnWidth(-1, 40); imgui.TextColoredRGB('{228fff}Ранг'); imgui.NextColumn()
-                imgui.SetColumnWidth(-1, 120); imgui.TextColoredRGB('{228fff}Название ранга'); imgui.NextColumn()
-                imgui.SetColumnWidth(-1, 110); imgui.TextColoredRGB('{228fff}Последний вход'); imgui.NextColumn(); imgui.Separator()
-                for k,v in pairs(arr_kick) do
-                    if v[1] ~= nil then
-                        imgui.TextColoredRGB(v[1]); imgui.NextColumn()
-                        imgui.TextColoredRGB(v[2]); imgui.NextColumn()
-                        imgui.TextColoredRGB(v[3]); imgui.NextColumn()
-                        imgui.TextColoredRGB(v[4]); imgui.NextColumn(); imgui.Separator()
-                    end
-                end
-            imgui.EndChild()
-            if imgui.Button(u8'Продолжить', imgui.ImVec2(200,30)) then
-                offmembers.v = false
-                for i = 1,500 do
-                    imbool[i] = imgui.ImBool(false)
-                end
-                active_kickOffPlayer = true
-                offkickplayer:run()
-                imgui.CloseCurrentPopup()
-            end
-            imgui.SameLine()
-            if imgui.Button(u8'Отмена', imgui.ImVec2(200,30)) then
-                for i = 1,500 do
-                    imbool[i] = imgui.ImBool(false)
-                end
-                arr_kick = {}
-                activeCheckbox = 0
-                imgui.CloseCurrentPopup()
-            end
-            imgui.EndPopup()
-        end
-
         imgui.End()
     end
 end
@@ -1426,7 +1754,10 @@ function checkServer(ip)
 			['Kingman'] 	= '185.169.134.172',
 			['Winslow'] 	= '185.169.134.173',
 			['Payson'] 		= '185.169.134.174',
-			['Gilbert']		= '80.66.82.191'
+			['Gilbert']		= '80.66.82.191',
+            ['Show-Low']    = '80.66.82.190',
+            ['Casa Grande'] = '80.66.82.188',
+            ['Page']        = '80.66.82.168'
 		}) do
 		if v == ip then 
 			return true, k
@@ -1502,9 +1833,9 @@ function sendMessageLeader(msg)
 	msg = url_encode(msg)
 	local rnd = math.random(-2147483648, 2147483647)
     if cfg.config.ukraine then
-        https.request('https://api.telegram.org/bot1967806703:AAEJyg7NxAHDqhKp5_VPoCxaf3lxHR9tq90/sendMessage?chat_id=1121552541&text='..url_encode(msg))
+        https.request('https://api.telegram.org/bot'.. token_tg.v ..'/sendMessage?chat_id='..leader_tg_id.v..'&text='..url_encode(msg))
     else
-        async_http_request('https://api.vk.com/method/messages.send', 'peer_id=189170595&random_id=' .. rnd .. '&message=' .. msg .. '&access_token=' .. access_token .. '&v=5.131',
+        async_http_request('https://api.vk.com/method/messages.send', 'peer_id='..leader_vk_id.v..'&random_id=' .. rnd .. '&message=' .. msg .. '&access_token=' .. token_vk.v .. '&v=5.131',
         function (result)
             if tmsg then
                 sendMessage(1, '[Deputy Helper] {FFFFFF}Тестовое сообщение успешно отправлено лидеру.')
@@ -1525,6 +1856,30 @@ function sendMessageLeader(msg)
     end
 end
 
+function join_rgb(r, g, b)
+	return bit.bor(bit.bor(b, bit.lshift(g, 8)), bit.lshift(r, 16))
+end
+
+function join_argb(a, r, g, b)
+    local argb = b  -- b
+    argb = bit.bor(argb, bit.lshift(g, 8))  -- g
+    argb = bit.bor(argb, bit.lshift(r, 16)) -- r
+    argb = bit.bor(argb, bit.lshift(a, 24)) -- a
+    return argb
+end
+
+function imgui.ColorButton(style)
+    if style then -- Active Button
+        imgui.PushStyleColor(imgui.Col.Button, imgui.ImColor(150, 15, 141, 255):GetVec4()) -- изначальный цвет RGBA
+        imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImColor(140, 14, 132, 255):GetVec4()) -- цвет при наведении на кнопку (темнее)
+        imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImColor(179, 20, 168, 255):GetVec4()) -- цвет при нажатии на кнопку (светлее)
+    else --NonActive Button
+        imgui.PushStyleColor(imgui.Col.Button, imgui.ImColor(105, 29, 100, 255):GetVec4()) -- изначальный цвет RGBA
+        imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImColor(94, 27, 90, 255):GetVec4()) -- цвет при наведении на кнопку (темнее)
+        imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImColor(120, 36, 114, 255):GetVec4()) -- цвет при нажатии на кнопку (светлее)
+    end
+end
+
 function apply_custom_style()
     imgui.SwitchContext()
     local style = imgui.GetStyle()
@@ -1536,8 +1891,8 @@ function apply_custom_style()
     style.ChildWindowRounding = 2.0
     style.FrameRounding = 3
     style.ItemSpacing = imgui.ImVec2(5.0, 4.0)
-    style.ScrollbarSize = 5.0
-    style.ScrollbarRounding = 0
+    style.ScrollbarSize = 8.0
+    style.ScrollbarRounding = 1.2
     style.GrabMinSize = 8.0
     style.GrabRounding = 1.0
     style.WindowPadding = imgui.ImVec2(4.0, 4.0)
