@@ -2,8 +2,8 @@ script_name('Agesilay Notification')
 script_author('S&D Scripts')
 script_description('Sends messages to the family leader for job reporting.')
 script_dependencies('events, ssl.https, inicfg, imgui, memory, vkeys, fAwesome5, effil')
-script_version('2.0')
-script_version_number(11)
+script_version('2.1')
+script_version_number(21)
 
 local sampev    =   require 'lib.samp.events'
 local https     =   require 'ssl.https'
@@ -34,6 +34,9 @@ local cfg = inicfg.load({
         current_day = os.date('%D'),
         invite = 0,
         quest = 0,
+        invite_week = 0,
+        quest_week = 0,
+        number_day = os.date('%w'),
         overlay = false,
         overlay_pos_x = 200,
         overlay_pos_y = 200,
@@ -58,7 +61,10 @@ local cmd = imgui.ImBuffer(u8(cfg.config.cmd), 256)
 local settings = {}
 local invite = cfg.config.invite
 local quest = cfg.config.quest
+local invite_week = cfg.config.invite_week
+local quest_week = cfg.config.quest_week
 local current_day = cfg.config.current_day
+local number_day = cfg.config.number_day
 local checkvip = true
 local famchat = {}
 local members = {}
@@ -126,12 +132,16 @@ local windowSizeX = 622
 if not doesFileExist('moonloader/config/agesilay_notf.ini') then inicfg.save(cfg, 'agesilay_notf.ini') end
 local fa_font = nil
 local fa_glyph_ranges = imgui.ImGlyphRanges({ fa.min_range, fa.max_range })
+local fsClock = nil
 
 function imgui.BeforeDrawFrame()
     if fa_font == nil then
         local font_config = imgui.ImFontConfig() -- to use 'imgui.ImFontConfig.new()' on error
         font_config.MergeMode = true
         fa_font = imgui.GetIO().Fonts:AddFontFromFileTTF('moonloader/resource/fonts/fa-solid-900.ttf', 12.0, font_config, fa_glyph_ranges)
+    end
+    if fsClock == nil then
+        fsClock = imgui.GetIO().Fonts:AddFontFromFileTTF(getFolderPath(0x14)  .. '\\trebucbd.ttf', 33.0, nil, imgui.GetIO().Fonts:GetGlyphRangesCyrillic())
     end
 end
 
@@ -217,18 +227,20 @@ function main()
     end
 
     while not sampIsLocalPlayerSpawned() do wait(130) end
+
+    if tonumber(number_day) == 0 then number_day = 7 end
     
     check_update()
     updateBlacklist()
     wait(1000)
+    
     print('{ffffff}Скрипт {9ACD32}успешно загружен.{ffffff} Версия скрипта: {ff0000}' ..thisScript().version)
     _, id_deputy = sampGetPlayerIdByCharHandle(playerPed)
     nickname = sampGetPlayerNickname(id_deputy)
     sendMessage(1, '[Deputy Helper] {ffffff}Скрипт запущен и работает {808080}[v '..thisScript().version..']. {ffffff}Меню - {800080}/' ..cmd.v)
     -- // проверка даты
-    if not current_day then
-        current_day = os.date('%D')
-    end
+    if not current_day then current_day = os.date('%D') end
+
     sampRegisterChatCommand(cmd.v, function()
 		ages.v = not ages.v
         if ages.v then
@@ -284,14 +296,39 @@ function main()
         if current_day ~= os.date('%D') then
             wait(3000)
             current_day = os.date('%D')
+            number_day = os.date('%w')
             invite = 0
             quest = 0
             cfg.config.current_day = current_day
             cfg.config.invite = invite
             cfg.config.quest = quest
+            cfg.config.number_day = number_day
+            if tonumber(number_day) == 0 then number_day = 7 end
             inicfg.save(cfg, 'agesilay_notf.ini')
             sendMessage(1, '[Deputy Helper] {ffffff}Скрипт обнулил значения инвайтов и квестов, так как начался новый день.')
             wait(10000)
+        end
+        -- zp
+
+        if number_day ~= os.date('%w') then
+            if tonumber(os.date('%w')) < tonumber(number_day) then
+                invite_week = 0
+                quest_week = 0
+                cfg.config.invite_week = invite_week
+                cfg.config.quest_week = quest_week
+                sendMessage(1, '[Deputy Helper] {ffffff}Скрипт обнулил значения инвайтов и квестов за неделю, т.к. началась новая.')
+            end
+            number_day = os.date('%w')
+            cfg.config.number_day = number_day
+            inicfg.save(cfg, 'agesilay_notf.ini')
+        end
+        if tonumber(invite_week) >= 20 and tonumber(quest_week) >= 5 then
+            sum = 3000000
+            if tonumber(invite_week) >= 30 then
+                sum = (invite_week > 30 and 5000000 + ((invite_week - 30) * 200000) or 5000000)
+            end
+        else
+            sum = 0
         end
         if update_state then -- Обновление скрипта.
             downloadUrlToFile(script_url, script_path, function(id, status)
@@ -521,6 +558,17 @@ function sampev.onShowDialog(id, style, title, button1, button2, text)
     end
 end
 
+function sampev.onSendCommand(cmd)
+    local id_inv = cmd:match('^/faminvite (%d+)$')
+    if id_inv then
+        if not sampGetPlayerNickname(id_inv):match('^[A-Z][A-z]+_[A-Z][A-z]+$') then
+            local msg_Error = 'Попытка принять игрока с NRP никнеймом: ' .. sampGetPlayerNickname(id_inv).. '[' ..id_inv.. ']!'
+            sendMessage(1, '[Deputy Helper] {ffffff}' ..msg_Error)
+            sendMessageLeader(msg_Error.. '\n[ ' ..thisScript().version.. ' ] Принял: ' ..invite.. ', квесты: ' ..quest.. '.\n[ $ ] Выплатить: '..formatter(sum .. '$')..'\n#error_invite')
+            return false
+        end
+    end
+end
 function sampev.onServerMessage(color, text)
     if check_premium then
         local premium_getname = text:match('%d+%.%s(.+)%[%d+%]')
@@ -594,7 +642,8 @@ function sampev.onServerMessage(color, text)
         if (names == nickname) then
             lua_thread.create(function()
                 local my_text = text:gsub('{......}', '')
-                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ] Принял: ' ..invite.. ', квесты: ' ..quest.. '.\n#mute')
+                wait(200)
+                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ] Принял: ' ..invite.. ', квесты: ' ..quest.. '.\n[ $ ] Выплатить: '..formatter(sum .. '$')..'\n#mute')
                 wait(500)
                 SendMessageDeputy(my_text)
             end)
@@ -605,7 +654,8 @@ function sampev.onServerMessage(color, text)
         if (names == nickname) then
             lua_thread.create(function()
                 local my_text = text:gsub('{......}', '')
-                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ] Принял: ' ..invite.. ', квесты: ' ..quest.. '.\n#kick')
+                wait(200)
+                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ] Принял: ' ..invite.. ', квесты: ' ..quest.. '.\n[ $ ] Выплатить: '..formatter(sum .. '$')..'\n#kick')
                 wait(500)
                 SendMessageDeputy(my_text)
             end)
@@ -617,7 +667,8 @@ function sampev.onServerMessage(color, text)
             lua_thread.create(function()
                 wait(1100)
                 local my_text = text:gsub('{......}', '')
-                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ] Принял: ' ..invite.. ', квесты: ' ..quest.. '.\n#offlinekick')
+                wait(200)
+                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ] Принял: ' ..invite.. ', квесты: ' ..quest.. '.\n[ $ ] Выплатить: '..formatter(sum .. '$')..'\n#offlinekick')
                 wait(500)
                 SendMessageDeputy(my_text)
             end)
@@ -638,9 +689,12 @@ function sampev.onServerMessage(color, text)
             lua_thread.create(function()
                 local my_text = text:gsub('{......}', '')
                 invite = invite + 1
+                invite_week = invite_week + 1
                 cfg.config.invite = invite
+                cfg.config.invite_week = invite_week
                 inicfg.save(cfg, 'agesilay_notf.ini')
-                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ]. Принял: ' ..invite.. ' человек.\n#invite')
+                wait(200)
+                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ]. Принял: ' ..invite.. ' человек.\n[ $ ] Выплатить: '..formatter(sum .. '$')..'\n#invite')
                 wait(500)
                 SendMessageDeputy(my_text)
                 if text_invite.v then
@@ -656,9 +710,12 @@ function sampev.onServerMessage(color, text)
             lua_thread.create(function()
                 local my_text = text:gsub('{......}', '')
                 quest = quest + 1
+                quest_week = quest_week + 1
                 cfg.config.quest = quest
+                cfg.config.quest_week = quest_week
                 inicfg.save(cfg, 'agesilay_notf.ini')
-                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ]. Выполнил квестов: ' ..quest.. '.\n#quest')
+                wait(200)
+                sendMessageLeader(my_text.. '\n[ ' ..thisScript().version.. ' ]. Выполнил квестов: ' ..quest.. '\n[ $ ] Выплатить: '..formatter(sum .. '$')..'.\n#quest')
                 wait(500)
                 SendMessageDeputy(my_text)
             end)
@@ -753,7 +810,7 @@ end
 
 function imgui.OnDrawFrame()
     if (ages.v) then
-        local ww, wh = windowSizeX + 7, 387
+        local ww, wh = windowSizeX + 7, 413
         imgui.SetNextWindowSize(imgui.ImVec2(ww, wh))
         imgui.SetNextWindowPos(imgui.ImVec2((sw-ww)/2, (sh-wh)/2), imgui.Cond.FirstUseEver)
         imgui.Begin('Deputy Helper##ages', ages,  imgui.WindowFlags.NoCollapse + imgui.WindowFlags.AlwaysAutoResize)
@@ -1458,7 +1515,8 @@ function imgui.OnDrawFrame()
                         end
                         lua_thread.create(function()
                             tmsg = true
-                            sendMessageLeader(testmessage.. '\n[ ' ..thisScript().version.. ' ] Принял: ' ..invite.. ', квесты: ' ..quest.. '.\n#testmessage')
+                            wait(200)
+                            sendMessageLeader(testmessage.. '\n[ ' ..thisScript().version.. ' ] Принял: ' ..invite.. ', квесты: ' ..quest.. '.\n[ $ ] Выплатить: '..formatter(sum .. '$')..'\n#testmessage')
                             wait(500)
                             SendMessageDeputy(testmessage)
                         end)
@@ -1523,6 +1581,8 @@ function imgui.OnDrawFrame()
                 
             end
             imgui.EndChild()
+            imgui.Separator()
+            imgui.CenterTextColoredRGB('{228FFF}Статистика: {FFFFFF}за сегодня - {FF4500}' ..invite.. ' {696969}/ {63de4e}' ..quest.. ' {696969}| {FFFFFF}за неделю - {FF4500}' ..invite_week.. ' {696969}/{63de4e} ' ..quest_week.. '{FFFFFF}. {FFFF00}Зарплата: {228B22}' ..formatter(sum.. '$'))
         imgui.End()
     end
 
@@ -1530,13 +1590,15 @@ function imgui.OnDrawFrame()
         if ages.v then imgui.ShowCursor = true end
         imgui.SetNextWindowPos(imgui.ImVec2((cfg.config.overlay_pos_x),(cfg.config.overlay_pos_y)), imgui.Cond.FirstUseEver)
         imgui.Begin('##overlay', overlay, imgui.WindowFlags.NoCollapse + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.AlwaysAutoResize)
-
-        imgui.TextColoredRGB('{ca03fc}Статистика за сегодня:')
+        imgui.PushFont(fsClock)
+        imgui.CenterTextColoredRGB('{ca03fc}' .. os.date("%H:%M:%S", os.time()))
+        imgui.PopFont()
+        imgui.TextColoredRGB('{696969}Статистика за сегодня:')
         imgui.Separator()
         imgui.SetCursorPosX(10)
         imgui.TextColoredRGB('{ffffff}Принято человек - {098aed}' ..invite)
         imgui.SetCursorPosX(35)
-        imgui.TextColoredRGB('{ffffff}Задания - {098aed}' ..quest.. '/8')
+        imgui.TextColoredRGB('{ffffff}Задания - {098aed}' ..quest.. ' / 8')
 
         if cfg.config.overlay_pos_x ~= imgui.GetWindowPos().x or cfg.config.overlay_pos_y ~= imgui.GetWindowPos().y then
             imgui.Separator()
@@ -1878,6 +1940,11 @@ function imgui.ColorButton(style)
         imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImColor(94, 27, 90, 255):GetVec4()) -- цвет при наведении на кнопку (темнее)
         imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImColor(120, 36, 114, 255):GetVec4()) -- цвет при нажатии на кнопку (светлее)
     end
+end
+
+function formatter(n)
+	local v1, v2, v3 = string.match(n,'^([^%d]*%d)(%d*)(.-)$')
+	return (tonumber(n) == 0 and 0 or (v1 .. (v2:reverse():gsub('(%d%d%d)','%1.'):reverse()) .. v3))
 end
 
 function apply_custom_style()
