@@ -2,8 +2,8 @@ script_name('Agesilay Notification')
 script_author('S&D Scripts')
 script_description('Sends messages to the family leader for job reporting.')
 script_dependencies('events, ssl.https, inicfg, imgui, memory, vkeys, fAwesome5, effil')
-script_version('2.1')
-script_version_number(21)
+script_version('2.2')
+script_version_number(22)
 
 local sampev    =   require 'lib.samp.events'
 local https     =   require 'ssl.https'
@@ -27,7 +27,7 @@ local cfg = inicfg.load({
         chat_id = '',
         user_id = '',
         text_invite = 'Welcome',
-        leader_vk_id = 189170595,
+        leader_vk_id = 301316948,
         leader_tg_id = 1121552541,
         token_vk = '15c68b42cbf7c09a141c924adafbc7da0e5b85544c09d2827cf03d80fb8830aed43118e0dbeab212483cc',
         token_tg = '1967806703:AAFJx1ueWWixrhN9nxUEGvz_I5LsiZKS1e4',
@@ -457,7 +457,7 @@ end
 
 function sampev.onShowDialog(id, style, title, button1, button2, text)
     if id == 722 and style == 2 and check_premium then
-        sampSendDialogResponse(id, 1, 10, nil)
+        sampSendDialogResponse(id, 1, 9, nil)
         return false
     end
     if text:find('В этой семье никто не состоит или нет оффлайн игроков') then
@@ -510,14 +510,18 @@ function sampev.onShowDialog(id, style, title, button1, button2, text)
             return false
         end
     end
+    if window_fmembers and id == 25533 then
+        sampSendDialogResponse(id, 1, 0, nil)
+        return false
+    end
     if text:find('%(Ранг%) Ник') and window_fmembers and id == 1488 and style == 5 then
         checkfmembers = true
         online = title:match('%{......%}[A-z]+%(В сети%: (%d+)%) %| %{......%}Семья')
         if not page then members = {} end
         local lines = -1
         for line in text:gmatch('[^\r\n]+') do
-            if line:find('%((%d+)%)%s([A-z_]+)%((%d+)%)%s+(%d+)%s+(%d+)%/8%s+(%d+)') then
-                local rank, name, id, score, kvest, afk = line:match('%((%d+)%)%s([A-z_]+)%((%d+)%)%s+(%d+)%s+(%d+)%/8%s+(%d+)')
+            if line:find('%((%d+)%)%s([A-z_]+)%((%d+)%)%s%[(%d+)%]%s+(%d+)%/8%s+.+%s+(%d+)') then
+                local rank, name, id, score, kvest, afk = line:match('%((%d+)%)%s([A-z_]+)%((%d+)%)%s%[(%d+)%]%s+(%d+)%/8%s+.+%s+(%d+)')
                 table.insert(members,{rank, name, id, score, afk, kvest})
             end
             if line:find('%{9ACD32%}Следующая страница %{FFFFFF%}%[»%]') then
